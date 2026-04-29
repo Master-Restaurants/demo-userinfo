@@ -1,7 +1,4 @@
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/shared/lib/supabase/env";
-import { resolveLocalDevEmailFromRequest } from "@/shared/lib/localDevAuth";
 import { DEMO_AUTH_COOKIE, isDemoMode } from "@/shared/lib/demoMode";
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = [
@@ -10,12 +7,6 @@ const PUBLIC_PATHS = [
   "/forgot-password",
   "/auth/callback",
   "/auth/reset",
-  "/api/invitations/register-init",
-  "/api/invitations/lookup",
-  "/api/invitations/complete",
-  "/api/dev/local-auth",
-  "/api/integration-cache/warm",
-  // Demo-Mode-Endpoints sind ebenfalls public (Login-Klick muss ohne Session funktionieren).
   "/api/demo/login",
   "/api/demo/me",
   "/api/demo/logout",
@@ -25,83 +16,36 @@ function isAuthPagePath(pathname: string): boolean {
   return pathname.startsWith("/login") || pathname.startsWith("/forgot-password");
 }
 
-export default async function proxy(request: NextRequest) {
+/**
+ * Demo-Variante: keine Supabase-Auth, nur Cookie-Check.
+ * - Mit Demo-Cookie → durchgelassen, Login-Page redirected zu /
+ * - Ohne Demo-Cookie → nur Public-Pfade, sonst Redirect zu /login
+ *
+ * `NEXT_PUBLIC_DEMO_MODE=0` setzt den ganzen Proxy auf "pass-through" (für lokale
+ * Entwicklung gegen echtes Backend — dann braucht es den vollen Original-Proxy).
+ */
+export default function proxy(request: NextRequest) {
+  if (!isDemoMode()) {
+    // Demo aus → Pass-through. (Original-Auth-Logik ist im Demo-Repo nicht enthalten.)
+    return NextResponse.next();
+  }
+
   const pathname = request.nextUrl.pathname;
   const isPublicPath = PUBLIC_PATHS.some((path) => pathname.startsWith(path));
   const shouldRedirectIfLoggedIn = isAuthPagePath(pathname);
+  const hasDemoCookie = Boolean(request.cookies.get(DEMO_AUTH_COOKIE)?.value);
 
-  // Demo-Mode hat höchste Priorität: User mit Demo-Cookie ist eingeloggt.
-  if (isDemoMode()) {
-    const hasDemoCookie = Boolean(request.cookies.get(DEMO_AUTH_COOKIE)?.value);
-
-    if (hasDemoCookie) {
-      // Eingeloggt: Login-Seite skippen.
-      if (isPublicPath && shouldRedirectIfLoggedIn) {
-        return NextResponse.redirect(new URL("/", request.url));
-      }
-      return NextResponse.next({ request });
-    }
-
-    // Nicht eingeloggt: nur public Pfade erlauben.
-    if (isPublicPath) {
-      return NextResponse.next({ request });
-    }
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-
-  // Normaler (Nicht-Demo-)Fall: erst Local-Dev, dann Supabase.
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    if (process.env.NEXT_PHASE === "phase-production-build") {
-      return NextResponse.next({ request });
-    }
-    return new NextResponse("Konfigurationsfehler: NEXT_PUBLIC_SUPABASE_URL / Anon-Key fehlen.", {
-      status: 500,
-    });
-  }
-
-  const localDevEmail = resolveLocalDevEmailFromRequest(request);
-  let response = NextResponse.next({ request });
-
-  if (localDevEmail) {
+  if (hasDemoCookie) {
     if (isPublicPath && shouldRedirectIfLoggedIn) {
       return NextResponse.redirect(new URL("/", request.url));
     }
-    return response;
+    return NextResponse.next();
   }
 
-  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) =>
-          request.cookies.set(name, value)
-        );
-        response = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options)
-        );
-      },
-    },
-  });
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (isPublicPath && user && shouldRedirectIfLoggedIn) {
-    return NextResponse.redirect(new URL("/", request.url));
+  if (isPublicPath) {
+    return NextResponse.next();
   }
-
-  if (!user) {
-    if (isPublicPath) {
-      return response;
-    }
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-
-  return response;
+  return NextResponse.redirect(new URL("/login", request.url));
 }
 
 export const config = {

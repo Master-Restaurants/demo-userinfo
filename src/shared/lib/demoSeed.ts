@@ -1399,25 +1399,117 @@ export function demoFeedbackListPayload() {
 }
 
 /** Procurement-Lines */
+/**
+ * Procurement-Lines — exakter ProcurementTableRow-Shape (siehe analytics/procurement/page.tsx).
+ * Mehrere Container, je 4-8 Produkt-Zeilen, plus optional Packaging-Zeile pro Container.
+ */
 export function demoProcurementLinesPayload() {
-  const lines = DEMO_PRODUCTS.slice(0, 8).map((p, i) => ({
-    id: `proc-${i}`,
-    sku: p.sku,
-    name: p.name,
-    quantity: Math.floor(seededRandom(`pl-${i}-q`) * 1000) + 100,
-    unitCost: +(p.priceEur * 0.45).toFixed(2),
-    totalCost: 0, // computed
-    containerNumber: `CONT-2026-${String(i + 1).padStart(3, "0")}`,
-    supplierName: i % 2 === 0 ? "Supplier Asia Co." : "Europe Wholesale GmbH",
-    arrivalDate: new Date(Date.now() + (10 + i * 5) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-    status: ["confirmed", "in_transit", "arrived"][i % 3],
-  }));
-  for (const line of lines) {
-    (line as { totalCost: number }).totalCost = +(
-      (line.unitCost as number) * (line.quantity as number)
-    ).toFixed(2);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const today = Date.now();
+
+  const CONTAINERS = [
+    { num: "MSCU-7382915", arrivalOffsetDays: -3, manufacture: "Petrhein GmbH" },
+    { num: "HLBU-2845067", arrivalOffsetDays: 12, manufacture: "Petrhein GmbH" },
+    { num: "MSKU-9183746", arrivalOffsetDays: 28, manufacture: "Asia Pet Supplies Ltd." },
+    { num: "TGHU-5467823", arrivalOffsetDays: 45, manufacture: "Asia Pet Supplies Ltd." },
+    { num: "GESU-3829164", arrivalOffsetDays: 62, manufacture: "Europe Wholesale GmbH" },
+    { num: "TCNU-8164532", arrivalOffsetDays: 90, manufacture: "Petrhein GmbH" },
+  ];
+
+  type Row = {
+    id: string;
+    sortIndex: number;
+    containerNumber: string;
+    manufacture: string;
+    productName: string;
+    sku: string;
+    amount: number;
+    arrivalAtPort: string;
+    notes: string;
+  };
+
+  const lines: Row[] = [];
+  let sortIdx = 0;
+  let lineCounter = 0;
+
+  for (const container of CONTAINERS) {
+    const arrivalIso = new Date(today + container.arrivalOffsetDays * dayMs)
+      .toISOString()
+      .slice(0, 10);
+    const productCount = 4 + Math.floor(seededRandom(`pc-${container.num}`) * 4);
+    const productOffset = Math.floor(seededRandom(`po-${container.num}`) * Math.max(1, DEMO_PRODUCTS.length - productCount));
+
+    for (let i = 0; i < productCount; i++) {
+      const product = DEMO_PRODUCTS[(productOffset + i) % DEMO_PRODUCTS.length]!;
+      const amount = (Math.floor(seededRandom(`amt-${container.num}-${i}`) * 80) + 10) * 12;
+      lines.push({
+        id: `proc-${lineCounter++}`,
+        sortIndex: sortIdx++,
+        containerNumber: container.num,
+        manufacture: container.manufacture,
+        productName: product.name,
+        sku: product.sku,
+        amount,
+        arrivalAtPort: arrivalIso,
+        notes: i === 0 && seededRandom(`note-${container.num}`) > 0.6
+          ? "Mengen final bestätigt"
+          : "",
+      });
+    }
+
+    // Optional eine Packaging-Zeile (zählt nicht zur Produkt-Summe — siehe isProcurementProductLine)
+    if (seededRandom(`pkg-${container.num}`) > 0.4) {
+      lines.push({
+        id: `proc-${lineCounter++}`,
+        sortIndex: sortIdx++,
+        containerNumber: container.num,
+        manufacture: container.manufacture,
+        productName: "Verpackungsmaterial",
+        sku: `PACK-${container.num.slice(0, 4)}`,
+        amount: 1,
+        arrivalAtPort: arrivalIso,
+        notes: "Packaging",
+      });
+    }
   }
-  return { items: lines, lines, metadata: { demo: true } };
+
+  // Beispiel-Comparison: zwei der Container zeigen Änderungen gegenüber dem letzten Import
+  const comparison: Record<string, {
+    previousArrivalUtc: number | null;
+    newArrivalUtc: number | null;
+    arrivalDirection: "earlier" | "later" | null;
+    previousTotalQty: number;
+    newTotalQty: number;
+    qtyDirection: "more" | "less" | null;
+  }> = {
+    [CONTAINERS[1]!.num]: {
+      previousArrivalUtc: today + 18 * dayMs,
+      newArrivalUtc: today + 12 * dayMs,
+      arrivalDirection: "earlier",
+      previousTotalQty: 1820,
+      newTotalQty: 2160,
+      qtyDirection: "more",
+    },
+    [CONTAINERS[2]!.num]: {
+      previousArrivalUtc: today + 21 * dayMs,
+      newArrivalUtc: today + 28 * dayMs,
+      arrivalDirection: "later",
+      previousTotalQty: 3240,
+      newTotalQty: 2880,
+      qtyDirection: "less",
+    },
+  };
+
+  return {
+    import: {
+      id: "demo-import-current",
+      file_name: "Beschaffung_KW17.xlsx",
+      created_at: new Date(today - 2 * dayMs).toISOString(),
+      row_count: lines.length,
+    },
+    lines,
+    comparison,
+  };
 }
 
 /** Cross-Listing Drafts */

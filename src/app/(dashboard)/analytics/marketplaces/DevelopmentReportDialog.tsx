@@ -311,6 +311,13 @@ export function DevelopmentReportDialog({
     }
   }, [articleMarketplaceIdsToLoad, compareMode, rFrom, rTo, salesChannelsToLoad, t]);
 
+  const loadReportRef = useRef(loadReport);
+  loadReportRef.current = loadReport;
+  useEffect(() => {
+    if (!open) return;
+    void loadReportRef.current();
+  }, [open]);
+
   const printReport = useCallback(() => {
     const html = buildDevelopmentReportHtml({
       rows: kpiRowsForDisplay,

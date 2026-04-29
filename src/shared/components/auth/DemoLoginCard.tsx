@@ -51,17 +51,12 @@ export function DemoLoginCard() {
           </div>
         </div>
 
-        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-          <strong className="font-semibold">Demo-Modus aktiv.</strong> Alle
-          Daten sind fiktiv und werden nur zur Anschauung angezeigt. Klicks auf
-          „Speichern" oder „Sync" sind ohne Wirkung.
-        </div>
-
         <p className="mb-6 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-          Das Master Dashboard verwaltet Bestellungen, Produkte und Analytik
-          über 9 Marktplätze (Amazon, eBay, Otto, Kaufland, Fressnapf,
-          MediaMarkt-Saturn, Zooplus, Shopify, TikTok) sowie Xentral-ERP — in
-          einer einheitlichen Oberfläche.
+          Bestellungen, Produkte und Analytik über 9 Marktplätze plus Xentral-ERP
+          — in einer Oberfläche.{" "}
+          <span className="text-slate-500 dark:text-slate-500">
+            Demo-Modus, alle Daten fiktiv.
+          </span>
         </p>
 
         <button
@@ -88,30 +83,6 @@ export function DemoLoginCard() {
             {errorMessage}
           </p>
         )}
-
-        <div className="mt-8 border-t border-slate-200 pt-6 dark:border-slate-800">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Was Sie sehen werden
-          </h2>
-          <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />
-              Cross-Marketplace Analytics (Umsatz, Profit, Retouren)
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />
-              Bestellungs- und Produkt-Listen je Marktplatz
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />
-              KI-gestützte Bedarfsprognose (Article-Forecast)
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />
-              Rollensystem, Tutorials, Dark-Mode, 3 Sprachen
-            </li>
-          </ul>
-        </div>
       </div>
     </div>
   );

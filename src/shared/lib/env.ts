@@ -33,12 +33,21 @@ const positiveIntString = trimmedString
 
 const skipValidation = process.env.SKIP_ENV_VALIDATION === "1";
 
+// Demo-Mode (`NEXT_PUBLIC_DEMO_MODE=1`) erlaubt fehlende Supabase-Credentials —
+// dann liefert der Mock-Client alles ohne echte DB-Verbindung. Für die öffentliche
+// Demo-Variante ist DEMO_MODE der Default: wenn weder DEMO_MODE explizit gesetzt
+// noch echte Supabase-URL vorhanden ist, behandeln wir den Build als Demo.
+const demoModeRaw = (process.env.NEXT_PUBLIC_DEMO_MODE ?? "").trim().toLowerCase();
+const demoModeEnabled = demoModeRaw === "1" || demoModeRaw === "true" || demoModeRaw === "yes" || demoModeRaw === "on";
+const supabaseUrlPresent = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim().length > 0;
+const supabasePflicht = !skipValidation && !demoModeEnabled && supabaseUrlPresent;
+
 const baseSchema = z.object({
-  // ---- Supabase (Pflicht) ----
-  NEXT_PUBLIC_SUPABASE_URL: skipValidation ? optionalString : url.refine((v) => v.length > 0, "Pflicht"),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: skipValidation
-    ? optionalString
-    : trimmedString.refine((v) => v.length > 0, "Pflicht"),
+  // ---- Supabase (Pflicht nur ohne Demo-Mode mit echter URL) ----
+  NEXT_PUBLIC_SUPABASE_URL: supabasePflicht ? url.refine((v) => v.length > 0, "Pflicht") : optionalString,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: supabasePflicht
+    ? trimmedString.refine((v) => v.length > 0, "Pflicht")
+    : optionalString,
   SUPABASE_SERVICE_ROLE_KEY: optionalString, // Optional in Dev; Pflicht in Prod (manuell setzen).
 
   // ---- App ----
@@ -179,8 +188,8 @@ if (!parsed.success && !skipValidation) {
     .map((i) => `  • ${i.path.join(".")}: ${i.message}`)
     .join("\n");
   console.error(`\n[env] Konfigurationsfehler — folgende Variablen sind ungültig:\n${issues}\n`);
-  // In Production hart abbrechen; in Dev nur warnen, damit lokales Setup ohne Secrets möglich bleibt.
-  if (process.env.NODE_ENV === "production") {
+  // In Production hart abbrechen — aber nicht im Demo-Mode (dort sind Supabase-Vars optional).
+  if (process.env.NODE_ENV === "production" && !demoModeEnabled) {
     throw new Error("Ungültige Umgebungsvariablen — siehe Log oben.");
   }
 }

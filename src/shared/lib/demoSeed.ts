@@ -1196,26 +1196,116 @@ export function demoUsersListPayload() {
 }
 
 /** Updates-Feed */
+/** Updates-Liste — Shape muss `ManagedUpdateItem` aus updates/page.tsx entsprechen. */
 export function demoUpdatesListPayload() {
-  const updates = [
-    { id: "upd-1", title: "Neue Bedarfsprognose-Engine", description: "Die Forecast-Engine berücksichtigt jetzt auch Container-Ankunftszeiten.", category: "feature", createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), unread: true },
-    { id: "upd-2", title: "Fressnapf-Integration: Verbesserte Performance", description: "Ladezeit der Fressnapf-Bestellseite um 60% reduziert.", category: "improvement", createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), unread: true },
-    { id: "upd-3", title: "Neuer Marktplatz: TikTok Shop", description: "TikTok-Shop ist jetzt als Beta verfügbar.", category: "feature", createdAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(), unread: false },
-    { id: "upd-4", title: "Bug-Fix: Xentral-Sync", description: "Doppelte Bestellungen bei parallelem Sync wurden behoben.", category: "fix", createdAt: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString(), unread: false },
-    { id: "upd-5", title: "Cross-Marketplace Preisvergleich", description: "Sehe auf einen Blick wer aktuell günstiger anbietet.", category: "feature", createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), unread: false },
+  const dayMs = 24 * 60 * 60 * 1000;
+  const ymd = (offset: number) =>
+    new Date(Date.now() - offset * dayMs).toISOString().slice(0, 10);
+  const iso = (offset: number) =>
+    new Date(Date.now() - offset * dayMs).toISOString();
+
+  const items = [
+    {
+      id: "upd-1",
+      date: ymd(2),
+      title: "Neue Bedarfsprognose-Engine",
+      text: "Die Forecast-Engine berücksichtigt jetzt auch Container-Ankunftszeiten und SKU-Saisonalität.",
+      release_key: "v1.8.0",
+      created_at: iso(2),
+    },
+    {
+      id: "upd-2",
+      date: ymd(7),
+      title: "Fressnapf-Integration: Verbesserte Performance",
+      text: "Ladezeit der Fressnapf-Bestellseite um 60% reduziert. Pagination ist jetzt server-seitig.",
+      release_key: "v1.7.4",
+      created_at: iso(7),
+    },
+    {
+      id: "upd-3",
+      date: ymd(14),
+      title: "Neuer Marktplatz: TikTok Shop",
+      text: "TikTok-Shop ist jetzt als Beta verfügbar — Bestellungen, Produkte, Sales-Charts.",
+      release_key: "v1.7.0",
+      created_at: iso(14),
+    },
+    {
+      id: "upd-4",
+      date: ymd(21),
+      title: "Bug-Fix: Xentral-Sync",
+      text: "Doppelte Bestellungen bei parallelem Sync wurden behoben (Race-Condition im ETag-Cache).",
+      release_key: "v1.6.2",
+      created_at: iso(21),
+    },
+    {
+      id: "upd-5",
+      date: ymd(30),
+      title: "Cross-Marketplace Preisvergleich",
+      text: "Auf einen Blick sehen, wer aktuell günstiger anbietet — inklusive Marge-Indikator.",
+      release_key: "v1.6.0",
+      created_at: iso(30),
+    },
   ];
-  return { updates, items: updates, metadata: { demo: true } };
+  return { items };
 }
 
-/** Feedback-Liste */
+/** Feedback-Liste — Shape muss `FeatureRequestRow` aus /api/feedback entsprechen. */
 export function demoFeedbackListPayload() {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const iso = (offset: number) =>
+    new Date(Date.now() - offset * dayMs).toISOString();
+
   const items = [
-    { id: "fb-1", title: "Dark-Mode für Charts", description: "Bei dunklem Hintergrund sind die Linien-Charts schwer lesbar.", type: "improvement", status: "in_progress", priority: "medium", upvotes: 12, createdBy: "anna.weber@example.com", createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: "fb-2", title: "Excel-Export für Bestellungen", description: "Wäre praktisch wenn man eine Liste direkt als XLSX exportieren könnte.", type: "feature", status: "open", priority: "high", upvotes: 23, createdBy: "max.schmidt@example.com", createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: "fb-3", title: "Push-Benachrichtigungen", description: "Bei Out-of-Stock-Warnungen wäre eine Push-Nachricht hilfreich.", type: "feature", status: "open", priority: "low", upvotes: 8, createdBy: "lisa.fischer@example.com", createdAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: "fb-4", title: "Tippfehler im Footer", description: "‚Imressum' statt ‚Impressum'.", type: "bug", status: "done", priority: "low", upvotes: 1, createdBy: "tobias.becker@example.com", createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString() },
+    {
+      id: "fb-1",
+      created_at: iso(5),
+      user_id: "demo-user-anna",
+      user_email: "anna.weber@example.com",
+      title: "Dark-Mode für Charts",
+      message: "Bei dunklem Hintergrund sind die Linien-Charts schwer lesbar — bitte Farbpalette anpassen.",
+      status: "in_progress" as const,
+      owner_reply: "Ist in Arbeit — Release voraussichtlich nächste Woche.",
+      page_path: "/analytics/marketplaces",
+      attachments: [],
+    },
+    {
+      id: "fb-2",
+      created_at: iso(10),
+      user_id: "demo-user-max",
+      user_email: "max.schmidt@example.com",
+      title: "Excel-Export für Bestellungen",
+      message: "Wäre praktisch wenn man eine Bestelliste direkt als XLSX exportieren könnte (mit Bestellnummer, Datum, SKU, Menge, Preis).",
+      status: "open" as const,
+      owner_reply: null,
+      page_path: "/amazon/orders",
+      attachments: [],
+    },
+    {
+      id: "fb-3",
+      created_at: iso(20),
+      user_id: "demo-user-lisa",
+      user_email: "lisa.fischer@example.com",
+      title: "Push-Benachrichtigungen bei Out-of-Stock",
+      message: "Bei Out-of-Stock-Warnungen wäre eine Push-Nachricht aufs Handy hilfreich — gerade bei Bestsellern.",
+      status: "open" as const,
+      owner_reply: null,
+      page_path: "/xentral/products",
+      attachments: [],
+    },
+    {
+      id: "fb-4",
+      created_at: iso(30),
+      user_id: "demo-user-tobias",
+      user_email: "tobias.becker@example.com",
+      title: "Tippfehler im Footer",
+      message: "Im Footer steht 'Imressum' statt 'Impressum'.",
+      status: "done" as const,
+      owner_reply: "Behoben in v1.6.1, danke für den Hinweis!",
+      page_path: null,
+      attachments: [],
+    },
   ];
-  return { items, feedback: items, metadata: { demo: true } };
+  return { items };
 }
 
 /** Procurement-Lines */

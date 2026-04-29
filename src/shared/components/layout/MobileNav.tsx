@@ -6,14 +6,12 @@ import { useMemo } from "react";
 import {
   BarChart3,
   Construction,
-  Megaphone,
   Menu,
   Package,
   PawPrint,
   ShoppingBag,
   ShoppingCart,
   Store,
-  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -80,22 +78,6 @@ const mainItems: Array<{
     href: "/xentral/products",
     activeGroup: "/xentral",
     icon: Package,
-    requiredPermissions: ["manage_integrations"],
-  },
-  {
-    key: "myArea",
-    label: "Mein Bereich",
-    href: "/mein-bereich",
-    activeGroup: "/mein-bereich",
-    icon: User,
-    requiredPermissions: ["manage_integrations"],
-  },
-  {
-    key: "advertising",
-    label: "Werbung",
-    href: "/advertising/campaigns",
-    activeGroup: "/advertising",
-    icon: Megaphone,
     requiredPermissions: ["manage_integrations"],
   },
   {

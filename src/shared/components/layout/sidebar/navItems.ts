@@ -3,7 +3,6 @@ import {
   Bell,
   Cat,
   Home,
-  Megaphone,
   Monitor,
   Package,
   PawPrint,
@@ -12,7 +11,6 @@ import {
   ShoppingBasket,
   ShoppingCart,
   Store,
-  User,
   Video,
 } from "lucide-react";
 import type { NavItem } from "./nav-utils";
@@ -23,13 +21,6 @@ export const navItems: NavItem[] = [
     labelKey: "nav.start",
     href: "/",
     icon: Home,
-  },
-  {
-    key: "myArea",
-    labelKey: "nav.myArea",
-    href: "/mein-bereich",
-    icon: User,
-    requiredPermissions: ["manage_integrations"],
   },
   {
     key: "amazon",
@@ -150,17 +141,6 @@ export const navItems: NavItem[] = [
     children: [
       { labelKey: "nav.xentralProducts", href: "/xentral/products" },
       { labelKey: "nav.xentralOrders", href: "/xentral/orders" },
-    ],
-  },
-  {
-    key: "advertising",
-    labelKey: "nav.advertising",
-    href: "/advertising",
-    icon: Megaphone,
-    requiredPermissions: ["manage_integrations"],
-    children: [
-      { labelKey: "nav.adCampaigns", href: "/advertising/campaigns" },
-      { labelKey: "nav.adPerformance", href: "/advertising/performance" },
     ],
   },
   {

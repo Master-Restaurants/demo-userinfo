@@ -17,10 +17,14 @@ export const DEMO_AUTH_COOKIE = "md_demo_user";
 export const DEMO_USER = {
   id: "demo-user-00000000-0000-0000-0000-000000000001",
   email: "demo@master-dashboard.dev",
-  fullName: "Demo Admin",
-  /** "owner" damit der Demo-User maximalen Zugriff hat (Role-Testing, alle Seiten sichtbar). */
-  roleKey: "owner",
-  profileRoleRaw: "owner",
+  fullName: "Demo Team Lead",
+  /**
+   * "admin" entspricht dem Label "Team Lead" (siehe i18n/de.json: roles.admin).
+   * Reicht für Standard-Demo aus. Owner-only-Features (Rollentest-Toolbar,
+   * Developer-UI) bleiben damit ausgeblendet — passend zum Demo-Charakter.
+   */
+  roleKey: "admin",
+  profileRoleRaw: "admin",
 } as const;
 
 function readBoolEnv(raw: string | undefined): boolean {

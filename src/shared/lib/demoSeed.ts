@@ -388,25 +388,100 @@ export function demoMarketplaceOverviewPayload() {
 
 /** Public API: Xentral-Bestellungen */
 export function demoXentralOrdersPayload() {
-  // Mische Bestellungen aus mehreren Marktplätzen, mit Xentral-spezifischen Feldern
-  const allOrders: Array<Record<string, unknown>> = [];
+  /**
+   * Wichtig: das Konsumenten-Hook (`useXentralOrdersLoader`) und
+   * `sortAddressDialogOrders` rufen `documentNumber.localeCompare` auf —
+   * also MUSS jedes Item das vollständige `XentralOrderRow`-Shape liefern,
+   * nicht nur Marketplace-Order-Felder.
+   */
+  type XentralRow = {
+    id: string;
+    documentNumber: string;
+    orderDate: string | null;
+    customer: string;
+    marketplace: string;
+    total: number | null;
+    currency: string | null;
+    addressValidation: "valid" | "missing" | "invalid";
+    addressValidationIssues: string[];
+    addressEdited: boolean;
+    addressPrimaryFields: Record<string, string>;
+    internetNumber: string;
+  };
+
+  const rows: XentralRow[] = [];
+  let i = 0;
   for (const mp of DEMO_MARKETPLACES) {
     const orders = generateOrders(mp, 8);
     for (const order of orders) {
-      allOrders.push({
-        ...order,
-        xentralId: `XEN-${Math.floor(seededRandom(`xen-${order.id}`) * 1000000)}`,
-        xentralStatus: order.status,
-        xentralBelegNr: `B-${Math.floor(seededRandom(`b-${order.id}`) * 100000)}`,
+      const id = `xen-${mp}-${1000 + i}`;
+      const docNum = `AB-${(20000 + i).toString().padStart(6, "0")}`;
+      const internetNum = String(order.orderId ?? `${mp.toUpperCase()}-${100000 + i}`);
+      const customer = String(order.customerName ?? "Demo Kunde");
+      const city = String(order.shippingCity ?? "Berlin");
+      const street = chooseDeterministic(`${mp}-st-${i}`, [
+        "Hauptstraße", "Bahnhofstraße", "Schulstraße", "Gartenstraße", "Berliner Straße",
+        "Lindenweg", "Kirchplatz", "Marktplatz", "Am Ring", "Friedrichstraße",
+      ]);
+      const houseNumber = String(1 + Math.floor(seededRandom(`hn-${i}`) * 99));
+      const zip = String(10000 + Math.floor(seededRandom(`zip-${i}`) * 90000));
+      const total = typeof order.total === "number" ? (order.total as number) : null;
+      const validRoll = seededRandom(`val-${i}`);
+      const addressValidation: XentralRow["addressValidation"] =
+        validRoll > 0.92 ? "invalid" : validRoll > 0.85 ? "missing" : "valid";
+      const issues: string[] =
+        addressValidation === "invalid"
+          ? ["Hausnummer fehlt"]
+          : addressValidation === "missing"
+            ? ["PLZ ungeklärt"]
+            : [];
+
+      rows.push({
+        id,
+        documentNumber: docNum,
+        orderDate: typeof order.orderDate === "string" ? (order.orderDate as string) : null,
+        customer,
+        marketplace: mp,
+        total,
+        currency: "EUR",
+        addressValidation,
+        addressValidationIssues: issues,
+        addressEdited: seededRandom(`edited-${i}`) > 0.9,
+        addressPrimaryFields: {
+          name: customer,
+          street,
+          houseNumber,
+          zip,
+          city,
+          country: "DE",
+          countryCode: "DE",
+        },
+        internetNumber: internetNum,
       });
+      i += 1;
     }
   }
-  // Sortieren nach Datum absteigend
-  allOrders.sort((a, b) => String(b.orderDate).localeCompare(String(a.orderDate)));
+
+  // Sortieren nach orderDate absteigend (null zuletzt)
+  rows.sort((a, b) => {
+    const da = a.orderDate ?? "";
+    const db = b.orderDate ?? "";
+    return db.localeCompare(da);
+  });
+
   return {
-    items: allOrders,
-    orders: allOrders,
-    metadata: { totalOrders: allOrders.length, cacheState: "fresh", demo: true },
+    items: rows,
+    totalCount: rows.length,
+    meta: {
+      mode: "all" as const,
+      sortField: "none",
+      order: "desc",
+      fetched: rows.length,
+      cappedAt: 50_000,
+      xentralOrderWebBase: null,
+      xentralSalesOrderWebPath: "/sales-orders",
+      demo: true,
+    },
   };
 }
 
@@ -540,32 +615,222 @@ export function demoMarketplaceArticleSalesPayload() {
   return { articles, items: articles, metadata: { demo: true } };
 }
 
-/** Weekly-Report */
+/** Weekly-Report — voller WeeklyReportData-Shape (siehe weeklyReportService.ts) */
 export function demoWeeklyReportPayload() {
-  const weeks = [];
-  for (let i = 0; i < 8; i++) {
-    const weekStart = new Date(Date.now() - (i * 7 + 7) * 24 * 60 * 60 * 1000);
-    const key = `wr-${i}`;
-    weeks.push({
-      weekNumber: 52 - i,
-      weekStart: weekStart.toISOString().slice(0, 10),
-      weekEnd: new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      totalOrders: Math.floor(seededRandom(key + "o") * 2000) + 500,
-      totalRevenue: +(seededRandom(key + "r") * 80000 + 15000).toFixed(2),
-      totalProfit: +(seededRandom(key + "p") * 16000 + 3000).toFixed(2),
-      perMarketplace: Object.fromEntries(
-        DEMO_MARKETPLACES.map((mp) => [
-          mp,
-          {
-            orders: Math.floor(seededRandom(key + mp + "o") * 300) + 30,
-            revenue: +(seededRandom(key + mp + "r") * 12000 + 1000).toFixed(2),
-            profit: +(seededRandom(key + mp + "p") * 2000 + 200).toFixed(2),
-          },
-        ])
-      ),
+  const dayMs = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  // Letzte abgeschlossene ISO-Woche (Mo–So)
+  const today = new Date(now);
+  const dayOfWeek = today.getUTCDay() === 0 ? 7 : today.getUTCDay(); // Mo=1..So=7
+  const lastSunday = new Date(now - dayOfWeek * dayMs);
+  const lastMonday = new Date(lastSunday.getTime() - 6 * dayMs);
+  const prevSunday = new Date(lastMonday.getTime() - 1 * dayMs);
+  const prevMonday = new Date(prevSunday.getTime() - 6 * dayMs);
+
+  // ISO-Wochennummern grob aus Datum (für Demo ausreichend)
+  const isoWeekNumber = (d: Date): number => {
+    const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    return Math.ceil(((date.getTime() - yearStart.getTime()) / dayMs + 1) / 7);
+  };
+
+  const buildIsoWeek = (start: Date, end: Date) => {
+    const yr = end.getUTCFullYear();
+    const wk = isoWeekNumber(end);
+    return {
+      year: yr,
+      week: wk,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      label: `KW ${wk} / ${yr}`,
+      key: `${yr}-${String(wk).padStart(2, "0")}`,
+    };
+  };
+
+  const currentWeek = buildIsoWeek(lastMonday, lastSunday);
+  const previousWeek = buildIsoWeek(prevMonday, prevSunday);
+
+  const REPORT_MP = [
+    { slug: "amazon", name: "Amazon DE", logo: "/brand/marketplaces/amazon.svg" },
+    { slug: "otto", name: "Otto", logo: "/brand/marketplaces/otto.svg" },
+    { slug: "ebay", name: "eBay", logo: "/brand/marketplaces/ebay.svg" },
+    { slug: "kaufland", name: "Kaufland", logo: "/brand/marketplaces/kaufland.svg" },
+    { slug: "fressnapf", name: "Fressnapf DE", logo: "/brand/marketplaces/fressnapf.svg" },
+    { slug: "fressnapf-at", name: "Fressnapf AT", logo: "/brand/marketplaces/fressnapf.svg" },
+    { slug: "mediamarkt-saturn", name: "MediaMarkt & Saturn", logo: "/brand/marketplaces/mediamarkt-saturn.svg" },
+    { slug: "zooplus", name: "Zooplus", logo: "/brand/marketplaces/zooplus.svg" },
+    { slug: "tiktok", name: "TikTok", logo: "/brand/marketplaces/tiktok.svg" },
+  ];
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const deltaPct = (cur: number, prev: number) => {
+    if (prev === 0) return cur > 0 ? 100 : 0;
+    return round1(((cur - prev) / prev) * 100);
+  };
+
+  const marketplaces = REPORT_MP.map((mp) => {
+    const k = `wr-cur-${mp.slug}`;
+    const kp = `wr-prev-${mp.slug}`;
+    const orders = 80 + Math.floor(seededRandom(k + "o") * 320);
+    const ordersPrev = 80 + Math.floor(seededRandom(kp + "o") * 320);
+    const avgPrice = 18 + seededRandom(k + "ap") * 35;
+    const avgPricePrev = 18 + seededRandom(kp + "ap") * 35;
+    const revenue = round2(orders * avgPrice);
+    const revenuePrev = round2(ordersPrev * avgPricePrev);
+    const returnCount = Math.floor(orders * (0.02 + seededRandom(k + "rc") * 0.06));
+    const returnedAmount = round2(returnCount * avgPrice * 0.9);
+    const returnCountPrev = Math.floor(ordersPrev * (0.02 + seededRandom(kp + "rc") * 0.06));
+    const returnedAmountPrev = round2(returnCountPrev * avgPricePrev * 0.9);
+    const returnRate = revenue > 0 ? round1((returnedAmount / revenue) * 100) : 0;
+    const returnRatePrev = revenuePrev > 0 ? round1((returnedAmountPrev / revenuePrev) * 100) : 0;
+
+    const dailyRevenue: number[] = [];
+    const dailyOrders: number[] = [];
+    let dailySum = 0;
+    let ordSum = 0;
+    for (let d = 0; d < 7; d++) {
+      const dr = round2(seededRandom(`${k}-d${d}r`) * (revenue / 4) + revenue / 12);
+      const doo = Math.floor(seededRandom(`${k}-d${d}o`) * (orders / 4) + orders / 12);
+      dailyRevenue.push(dr);
+      dailyOrders.push(doo);
+      dailySum += dr;
+      ordSum += doo;
+    }
+    // Skaliere damit Summe ungefähr passt
+    const drScale = revenue > 0 && dailySum > 0 ? revenue / dailySum : 1;
+    const doScale = orders > 0 && ordSum > 0 ? orders / ordSum : 1;
+    const dailyRevenueFinal = dailyRevenue.map((d) => round2(d * drScale));
+    const dailyOrdersFinal = dailyOrders.map((d) => Math.max(0, Math.round(d * doScale)));
+
+    const topGainers = DEMO_PRODUCTS.slice(0, 5).map((p, idx) => {
+      const cur = round2(seededRandom(`${k}-tg${idx}c`) * 1500 + 200);
+      const prev = round2(cur * (0.5 + seededRandom(`${k}-tg${idx}p`) * 0.4));
+      return {
+        sku: p.sku,
+        name: p.name,
+        revenueCurrent: cur,
+        revenuePrevious: prev,
+        deltaPercent: deltaPct(cur, prev),
+        ordersCurrent: 5 + Math.floor(seededRandom(`${k}-tg${idx}oc`) * 40),
+        ordersPrevious: 5 + Math.floor(seededRandom(`${k}-tg${idx}op`) * 40),
+      };
     });
-  }
-  return { weeks, items: weeks, metadata: { demo: true } };
+
+    const topLosers = DEMO_PRODUCTS.slice(5, 10).map((p, idx) => {
+      const cur = round2(seededRandom(`${k}-tl${idx}c`) * 800 + 100);
+      const prev = round2(cur * (1.3 + seededRandom(`${k}-tl${idx}p`) * 0.6));
+      return {
+        sku: p.sku,
+        name: p.name,
+        revenueCurrent: cur,
+        revenuePrevious: prev,
+        deltaPercent: deltaPct(cur, prev),
+        ordersCurrent: 3 + Math.floor(seededRandom(`${k}-tl${idx}oc`) * 25),
+        ordersPrevious: 3 + Math.floor(seededRandom(`${k}-tl${idx}op`) * 25),
+      };
+    });
+
+    return {
+      slug: mp.slug,
+      name: mp.name,
+      logo: mp.logo,
+      current: {
+        revenue,
+        orders,
+        avgOrderValue: orders > 0 ? round2(revenue / orders) : 0,
+        returnRate,
+        returnCount,
+      },
+      previous: {
+        revenue: revenuePrev,
+        orders: ordersPrev,
+        avgOrderValue: ordersPrev > 0 ? round2(revenuePrev / ordersPrev) : 0,
+        returnRate: returnRatePrev,
+        returnCount: returnCountPrev,
+      },
+      deltas: {
+        revenuePercent: deltaPct(revenue, revenuePrev),
+        ordersPercent: deltaPct(orders, ordersPrev),
+        avgOrderValuePercent: deltaPct(
+          orders > 0 ? revenue / orders : 0,
+          ordersPrev > 0 ? revenuePrev / ordersPrev : 0
+        ),
+        returnRatePp: round1(returnRate - returnRatePrev),
+      },
+      dailyRevenue: dailyRevenueFinal,
+      dailyOrders: dailyOrdersFinal,
+      topGainers,
+      topLosers,
+      averagePriceTrend: {
+        current: round2(avgPrice),
+        previous: round2(avgPricePrev),
+        deltaPercent: deltaPct(avgPrice, avgPricePrev),
+      },
+    };
+  });
+
+  // Aggregierte Totals
+  const sumRevCur = marketplaces.reduce((s, m) => s + m.current.revenue, 0);
+  const sumRevPrev = marketplaces.reduce((s, m) => s + m.previous.revenue, 0);
+  const sumOrdCur = marketplaces.reduce((s, m) => s + m.current.orders, 0);
+  const sumOrdPrev = marketplaces.reduce((s, m) => s + m.previous.orders, 0);
+  const sumRetCur = marketplaces.reduce((s, m) => s + m.current.returnCount, 0);
+  const sumRetPrev = marketplaces.reduce((s, m) => s + m.previous.returnCount, 0);
+
+  const totals = {
+    current: {
+      revenue: round2(sumRevCur),
+      orders: sumOrdCur,
+      avgOrderValue: sumOrdCur > 0 ? round2(sumRevCur / sumOrdCur) : 0,
+      returnRate: sumOrdCur > 0 ? round1((sumRetCur / sumOrdCur) * 100) : 0,
+      returnCount: sumRetCur,
+    },
+    previous: {
+      revenue: round2(sumRevPrev),
+      orders: sumOrdPrev,
+      avgOrderValue: sumOrdPrev > 0 ? round2(sumRevPrev / sumOrdPrev) : 0,
+      returnRate: sumOrdPrev > 0 ? round1((sumRetPrev / sumOrdPrev) * 100) : 0,
+      returnCount: sumRetPrev,
+    },
+    deltas: {
+      revenuePercent: deltaPct(sumRevCur, sumRevPrev),
+      ordersPercent: deltaPct(sumOrdCur, sumOrdPrev),
+      avgOrderValuePercent: deltaPct(
+        sumOrdCur > 0 ? sumRevCur / sumOrdCur : 0,
+        sumOrdPrev > 0 ? sumRevPrev / sumOrdPrev : 0
+      ),
+      returnRatePp: round1(
+        (sumOrdCur > 0 ? (sumRetCur / sumOrdCur) * 100 : 0) -
+          (sumOrdPrev > 0 ? (sumRetPrev / sumOrdPrev) * 100 : 0)
+      ),
+    },
+  };
+
+  const trend: "up" | "down" | "flat" =
+    totals.deltas.revenuePercent > 1 ? "up" : totals.deltas.revenuePercent < -1 ? "down" : "flat";
+  const narrative = {
+    text: `Diese Woche ${totals.deltas.revenuePercent >= 0 ? "+" : ""}${totals.deltas.revenuePercent}% Umsatz gegenüber Vorwoche, bei ${totals.current.orders} Bestellungen.`,
+    segments: [
+      { type: "text" as const, value: "Diese Woche " },
+      {
+        type: "metric" as const,
+        value: `${totals.deltas.revenuePercent >= 0 ? "+" : ""}${totals.deltas.revenuePercent}%`,
+        trend,
+      },
+      { type: "text" as const, value: ` Umsatz, ${totals.current.orders} Bestellungen.` },
+    ],
+  };
+
+  return {
+    weeks: { current: currentWeek, previous: previousWeek },
+    totals,
+    marketplaces,
+    narrative,
+  };
 }
 
 /** Weekly-Report Notes */
@@ -687,36 +952,235 @@ export function demoSalesConfigStatusPayload() {
 }
 
 /** Payouts-Overview */
+/** Payouts Overview — exakter PayoutOverview-Shape (siehe payoutTypes.ts) */
 export function demoPayoutsOverviewPayload() {
-  const periods = [];
-  for (let i = 0; i < 12; i++) {
-    const periodStart = new Date(Date.now() - (i + 1) * 14 * 24 * 60 * 60 * 1000);
-    periods.push({
-      id: `payout-${i}`,
-      periodStart: periodStart.toISOString().slice(0, 10),
-      periodEnd: new Date(periodStart.getTime() + 13 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      perMarketplace: Object.fromEntries(
-        DEMO_MARKETPLACES.map((mp) => [
-          mp,
-          {
-            grossSales: +(seededRandom(`po-${i}-${mp}-g`) * 30000 + 5000).toFixed(2),
-            fees: +(seededRandom(`po-${i}-${mp}-f`) * 4000 + 500).toFixed(2),
-            refunds: +(seededRandom(`po-${i}-${mp}-r`) * 800).toFixed(2),
-            netPayout: +(seededRandom(`po-${i}-${mp}-n`) * 25000 + 4000).toFixed(2),
-          },
-        ])
-      ),
-      totalGross: 0, // computed by UI typically
-      totalNet: 0,
-      status: i === 0 ? "pending" : "paid",
-    });
+  const dayMs = 24 * 60 * 60 * 1000;
+  const today = new Date();
+  const todayYmd = today.toISOString().slice(0, 10);
+  const fromDate = new Date(today.getTime() - 30 * dayMs);
+  const fromYmd = fromDate.toISOString().slice(0, 10);
+  const prevToDate = new Date(fromDate.getTime() - 1 * dayMs);
+  const prevFromDate = new Date(prevToDate.getTime() - 30 * dayMs);
+  const prevFromYmd = prevFromDate.toISOString().slice(0, 10);
+  const prevToYmd = prevToDate.toISOString().slice(0, 10);
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  const PAYOUT_MARKETPLACES = [
+    "amazon-de", "amazon-fr", "ebay", "otto", "kaufland",
+    "fressnapf", "mediamarkt-saturn", "zooplus", "tiktok", "shopify",
+  ];
+
+  type PayoutRow = {
+    id: string;
+    marketplaceSlug: string;
+    periodFrom: string;
+    periodTo: string;
+    settlementId: string | null;
+    grossSales: number;
+    refundsAmount: number;
+    refundsFeesReturned: number;
+    marketplaceFees: number;
+    fulfillmentFees: number;
+    advertisingFees: number;
+    shippingFees: number;
+    promotionDiscounts: number;
+    otherFees: number;
+    otherFeesBreakdown: Record<string, number> | null;
+    reserveAmount: number;
+    netPayout: number;
+    ordersCount: number;
+    returnsCount: number;
+    unitsSold: number;
+    payoutRatio: number;
+    returnRate: number;
+    acos: number | null;
+    tacos: number | null;
+    productBreakdown: unknown;
+    currency: string;
+    fetchedAt: string;
+  };
+
+  const buildRow = (mp: string, idx: number, periodFrom: string, periodTo: string, prefix: string): PayoutRow => {
+    const k = `${prefix}-${mp}-${idx}`;
+    const grossSales = round2(seededRandom(k + "g") * 18000 + 3500);
+    const refundsAmount = -round2(seededRandom(k + "r") * 600 + 50);
+    const marketplaceFees = -round2(grossSales * (0.10 + seededRandom(k + "mf") * 0.05));
+    const fulfillmentFees = -round2(grossSales * (0.06 + seededRandom(k + "ff") * 0.03));
+    const advertisingFees = -round2(grossSales * (0.02 + seededRandom(k + "af") * 0.05));
+    const shippingFees = -round2(seededRandom(k + "sf") * 220 + 20);
+    const promotionDiscounts = -round2(seededRandom(k + "pd") * 480);
+    const otherFees = -round2(seededRandom(k + "of") * 80);
+    const reserveAmount = round2(seededRandom(k + "res") * 250);
+    const netPayout = round2(
+      grossSales + refundsAmount + marketplaceFees + fulfillmentFees + advertisingFees +
+      shippingFees + promotionDiscounts + otherFees - reserveAmount
+    );
+    const ordersCount = 80 + Math.floor(seededRandom(k + "oc") * 220);
+    const returnsCount = Math.floor(ordersCount * (0.02 + seededRandom(k + "rc") * 0.06));
+    const unitsSold = ordersCount + Math.floor(seededRandom(k + "us") * 40);
+    const payoutRatio = grossSales > 0 ? Math.round((netPayout / grossSales) * 10000) / 10000 : 0;
+    const returnRate = ordersCount > 0 ? Math.round((returnsCount / ordersCount) * 10000) / 10000 : 0;
+    const tacos = grossSales > 0 ? round2((Math.abs(advertisingFees) / grossSales) * 100) : 0;
+
+    return {
+      id: `${prefix}-${mp}-${idx}`,
+      marketplaceSlug: mp,
+      periodFrom,
+      periodTo,
+      settlementId: `SETTLE-${prefix}-${mp}-${10000 + idx}`,
+      grossSales,
+      refundsAmount,
+      refundsFeesReturned: round2(Math.abs(refundsAmount) * 0.15),
+      marketplaceFees,
+      fulfillmentFees,
+      advertisingFees,
+      shippingFees,
+      promotionDiscounts,
+      otherFees,
+      otherFeesBreakdown: null,
+      reserveAmount,
+      netPayout,
+      ordersCount,
+      returnsCount,
+      unitsSold,
+      payoutRatio,
+      returnRate,
+      acos: round2(seededRandom(k + "acos") * 25 + 5),
+      tacos,
+      productBreakdown: null,
+      currency: "EUR",
+      fetchedAt: new Date().toISOString(),
+    };
+  };
+
+  // Pro Marktplatz 2 Settlement-Perioden in der aktuellen + 2 in der Vergleichsperiode
+  const rows: PayoutRow[] = [];
+  const previousRows: PayoutRow[] = [];
+
+  for (const mp of PAYOUT_MARKETPLACES) {
+    rows.push(buildRow(mp, 0, fromYmd, todayYmd, "cur"));
+    rows.push(buildRow(mp, 1,
+      new Date(fromDate.getTime() + 14 * dayMs).toISOString().slice(0, 10),
+      todayYmd,
+      "cur"
+    ));
+    previousRows.push(buildRow(mp, 0, prevFromYmd, prevToYmd, "prev"));
+    previousRows.push(buildRow(mp, 1,
+      new Date(prevFromDate.getTime() + 14 * dayMs).toISOString().slice(0, 10),
+      prevToYmd,
+      "prev"
+    ));
   }
-  return { items: periods, periods, metadata: { demo: true } };
+
+  const sumTotals = (list: PayoutRow[]) => {
+    let grossSales = 0, refundsAmount = 0, marketplaceFees = 0, fulfillmentFees = 0;
+    let advertisingFees = 0, shippingFees = 0, promotionDiscounts = 0, otherFees = 0;
+    let netPayout = 0, ordersCount = 0, returnsCount = 0, unitsSold = 0;
+    for (const r of list) {
+      grossSales += r.grossSales;
+      refundsAmount += r.refundsAmount;
+      marketplaceFees += r.marketplaceFees;
+      fulfillmentFees += r.fulfillmentFees;
+      advertisingFees += r.advertisingFees;
+      shippingFees += r.shippingFees;
+      promotionDiscounts += r.promotionDiscounts;
+      otherFees += r.otherFees;
+      netPayout += r.netPayout;
+      ordersCount += r.ordersCount;
+      returnsCount += r.returnsCount;
+      unitsSold += r.unitsSold;
+    }
+    const totalFees = round2(
+      Math.abs(marketplaceFees) + Math.abs(fulfillmentFees) +
+      Math.abs(shippingFees) + Math.abs(promotionDiscounts) + Math.abs(otherFees)
+    );
+    const payoutRatio = grossSales > 0 ? Math.round((netPayout / grossSales) * 10000) / 10000 : 0;
+    const returnRate = ordersCount > 0 ? Math.round((returnsCount / ordersCount) * 10000) / 10000 : 0;
+    const aov = ordersCount > 0 ? round2(grossSales / ordersCount) : 0;
+    const tacos = grossSales > 0 ? round2((Math.abs(advertisingFees) / grossSales) * 100) : 0;
+    return {
+      grossSales: round2(grossSales),
+      refundsAmount: round2(refundsAmount),
+      marketplaceFees: round2(marketplaceFees),
+      fulfillmentFees: round2(fulfillmentFees),
+      advertisingFees: round2(advertisingFees),
+      shippingFees: round2(shippingFees),
+      promotionDiscounts: round2(promotionDiscounts),
+      otherFees: round2(otherFees),
+      netPayout: round2(netPayout),
+      ordersCount,
+      returnsCount,
+      unitsSold,
+      payoutRatio,
+      returnRate,
+      aov,
+      tacos,
+      totalFees,
+    };
+  };
+
+  const totals = sumTotals(rows);
+  const previousTotals = sumTotals(previousRows);
+
+  const pctDelta = (c: number, p: number) =>
+    p !== 0 ? Math.round(((c - p) / Math.abs(p)) * 1000) / 10 : null;
+
+  const deltas = {
+    grossSales: pctDelta(totals.grossSales, previousTotals.grossSales),
+    netPayout: pctDelta(totals.netPayout, previousTotals.netPayout),
+    payoutRatio: Math.round((totals.payoutRatio - previousTotals.payoutRatio) * 10000) / 10000,
+    returnRate: Math.round((totals.returnRate - previousTotals.returnRate) * 10000) / 10000,
+    ordersCount: pctDelta(totals.ordersCount, previousTotals.ordersCount),
+    refundsAmount: pctDelta(Math.abs(totals.refundsAmount), Math.abs(previousTotals.refundsAmount)),
+    advertisingFees: pctDelta(Math.abs(totals.advertisingFees), Math.abs(previousTotals.advertisingFees)),
+    aov: pctDelta(totals.aov, previousTotals.aov),
+    tacos: round2(totals.tacos - previousTotals.tacos),
+  };
+
+  return {
+    period: { from: fromYmd, to: todayYmd },
+    previousPeriod: { from: prevFromYmd, to: prevToYmd },
+    marketplaces: PAYOUT_MARKETPLACES,
+    totals,
+    previousTotals,
+    deltas,
+    rows,
+    previousRows,
+  };
 }
 
-/** Payouts-Periods (Liste) */
+/** Payouts-Periods (Dropdown-Liste) */
 export function demoPayoutsPeriodsPayload() {
-  return demoPayoutsOverviewPayload();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const today = new Date();
+  const todayMs = today.getTime();
+  const PAYOUT_MARKETPLACES = [
+    "amazon-de", "amazon-fr", "ebay", "otto", "kaufland",
+    "fressnapf", "mediamarkt-saturn", "zooplus", "tiktok", "shopify",
+  ];
+  const periods: Array<{
+    periodFrom: string;
+    periodTo: string;
+    marketplace: string;
+    isOpen: boolean;
+  }> = [];
+
+  // 6 Settlement-Perioden pro Marktplatz, alle 14 Tage
+  for (const mp of PAYOUT_MARKETPLACES) {
+    for (let i = 0; i < 6; i++) {
+      const to = new Date(todayMs - i * 14 * dayMs);
+      const from = new Date(to.getTime() - 13 * dayMs);
+      periods.push({
+        periodFrom: from.toISOString().slice(0, 10),
+        periodTo: to.toISOString().slice(0, 10),
+        marketplace: mp,
+        isOpen: i === 0,
+      });
+    }
+  }
+
+  return { periods };
 }
 
 /** User-Liste */

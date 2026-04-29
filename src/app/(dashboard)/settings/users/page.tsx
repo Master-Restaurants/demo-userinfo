@@ -1,0 +1,531 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
+import { type Role } from "@/shared/lib/invitations";
+import {
+  ROLE_OPTIONS,
+} from "@/shared/lib/access-control";
+import { useAppStore } from "@/shared/stores/useAppStore";
+import { usePermissions } from "@/shared/hooks/usePermissions";
+import { useTranslation } from "@/i18n/I18nProvider";
+import { resolveRoleLabel } from "@/i18n/resolve-role-label";
+import type { SettingsUsersSectionId } from "@/shared/lib/settings-users-section-order";
+import { cn } from "@/lib/utils";
+import {
+  DASHBOARD_COMPACT_CARD,
+  DASHBOARD_PAGE_TITLE,
+  DASHBOARD_PLAIN_TABLE_WRAP,
+} from "@/shared/lib/dashboardUi";
+
+type TeamMember = {
+  id: string;
+  email: string;
+  role: string;
+  createdAt: string;
+};
+
+const SECTION_CLASS = cn("w-full space-y-3", DASHBOARD_COMPACT_CARD);
+const TABLE_WRAP_CLASS = DASHBOARD_PLAIN_TABLE_WRAP;
+const ORDER_CLASSES = [
+  "order-1",
+  "order-2",
+  "order-3",
+  "order-4",
+  "order-5",
+  "order-6",
+  "order-7",
+  "order-8",
+  "order-9",
+] as const;
+type SectionId = SettingsUsersSectionId;
+
+export default function SettingsUsersPage() {
+  const { t, locale } = useTranslation();
+  const dateLocale = locale === "de" ? "de-DE" : locale === "zh" ? "zh-CN" : "en-US";
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<Role>("viewer");
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [isSubmittingInvite, setIsSubmittingInvite] = useState(false);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(true);
+  const [memberActionMessage, setMemberActionMessage] = useState<string | null>(null);
+  const [memberActionError, setMemberActionError] = useState<string | null>(null);
+  const sectionOrder = useAppStore((state) => state.settingsUsersSectionOrder);
+  const setSettingsUsersSectionOrder = useAppStore((state) => state.setSettingsUsersSectionOrder);
+
+  const roleLabels = useAppStore((state) => state.roleLabels);
+  const customRoleKeys = useAppStore((state) => state.customRoleKeys);
+  const textOverrides = useAppStore((state) => state.textOverrides);
+  const setRoleLabel = useAppStore((state) => state.setRoleLabel);
+  const addCustomRole = useAppStore((state) => state.addCustomRole);
+  const removeRole = useAppStore((state) => state.removeRole);
+
+  const inviteRoleOptions = useMemo(() => ROLE_OPTIONS, []);
+
+  const [newCustomRoleLabel, setNewCustomRoleLabel] = useState("");
+  const [newCustomRoleTemplate, setNewCustomRoleTemplate] = useState<Role>("viewer");
+
+  const { hasPermission, canViewSection } = usePermissions();
+  const canManageUsers = hasPermission("manage_users");
+  const canManageRoles = hasPermission("manage_roles");
+
+  const text = (key: string, fallback: string) =>
+    Object.prototype.hasOwnProperty.call(textOverrides, key)
+      ? textOverrides[key]
+      : fallback;
+
+  const parseJsonSafely = useCallback(
+    async <T,>(response: Response): Promise<T> => {
+      const raw = await response.text();
+      if (!raw) {
+        throw new Error(t("settingsUsers.errors.emptyResponse"));
+      }
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        throw new Error(t("settingsUsers.errors.invalidJson"));
+      }
+    },
+    [t]
+  );
+
+  useEffect(() => {
+    const loadMembers = async () => {
+      setIsLoadingMembers(true);
+      setMemberActionError(null);
+      try {
+        const response = await fetch("/api/users");
+        const payload = await parseJsonSafely<{
+          users?: TeamMember[];
+          error?: string;
+        }>(response);
+        if (!response.ok) {
+          throw new Error(payload.error ?? t("settingsUsers.errors.loadUsersFailed"));
+        }
+        setMembers(payload.users ?? []);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : t("settingsUsers.errors.loadUsersUnknown");
+        setMemberActionError(message);
+      } finally {
+        setIsLoadingMembers(false);
+      }
+    };
+
+    if (canManageUsers) {
+      void loadMembers();
+    }
+  }, [canManageUsers, parseJsonSafely, t]);
+
+  const handleInvite = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!inviteEmail.trim()) return;
+    setIsSubmittingInvite(true);
+    setInviteError(null);
+    setInviteMessage(null);
+
+    try {
+      const response = await fetch("/api/invitations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          role: inviteRole,
+        }),
+      });
+
+      const payload = await parseJsonSafely<{
+        invitation?: {
+          id: string;
+          email: string;
+          role: Role;
+          status: "pending" | "accepted";
+          created_at: string;
+          expires_at: string;
+        };
+        message?: string;
+        warning?: string;
+        error?: string;
+      }>(response);
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? t("settingsUsers.errors.inviteFailed"));
+      }
+
+      setInviteMessage(
+        payload.message ??
+          payload.warning ??
+          t("settingsUsers.errors.inviteSuccessDefault")
+      );
+      setInviteEmail("");
+      setInviteRole("viewer");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t("settingsUsers.errors.inviteUnknown");
+      setInviteError(message);
+    } finally {
+      setIsSubmittingInvite(false);
+    }
+  };
+
+  const handleRemoveUser = async (userId: string) => {
+    setMemberActionError(null);
+    setMemberActionMessage(null);
+    try {
+      const response = await fetch("/api/users", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      const payload = await parseJsonSafely<{ message?: string; error?: string }>(
+        response
+      );
+      if (!response.ok) {
+        throw new Error(payload.error ?? t("settingsUsers.errors.removeUserFailed"));
+      }
+      setMembers((prev) => prev.filter((member) => member.id !== userId));
+      setMemberActionMessage(payload.message ?? t("settingsUsers.memberRemoved"));
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : t("settingsUsers.errors.removeUserUnknown");
+      setMemberActionError(message);
+    }
+  };
+
+  const moveSection = (sectionId: SectionId, direction: "up" | "down") => {
+    if (!canManageRoles) return;
+    const prev = useAppStore.getState().settingsUsersSectionOrder;
+    const index = prev.indexOf(sectionId);
+    if (index < 0) return;
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= prev.length) return;
+    const next = [...prev];
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    setSettingsUsersSectionOrder(next);
+  };
+
+  const getSectionOrderClass = (sectionId: SectionId) => {
+    const index = sectionOrder.indexOf(sectionId);
+    return ORDER_CLASSES[index] ?? "order-last";
+  };
+
+  const isFirstSection = (sectionId: SectionId) => sectionOrder.indexOf(sectionId) === 0;
+  const isLastSection = (sectionId: SectionId) => sectionOrder.indexOf(sectionId) === sectionOrder.length - 1;
+
+  if (!canManageUsers) {
+    return (
+      <div className="space-y-3 rounded-xl border border-border/50 bg-card/80 p-6 backdrop-blur-sm">
+        <h1 className="text-xl font-semibold">{t("settingsUsers.accessDeniedTitle")}</h1>
+        <p className="text-muted-foreground">{t("settingsUsers.accessDeniedBody")}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex w-full max-w-none flex-col gap-4">
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className={DASHBOARD_PAGE_TITLE}>
+            {text("users.page.title", t("settingsUsers.pageTitle"))}
+          </h1>
+        </div>
+        {text("users.page.description", t("settingsUsers.pageDescription")) ? (
+          <p className="text-sm text-muted-foreground">
+            {text("users.page.description", t("settingsUsers.pageDescription"))}
+          </p>
+        ) : null}
+      </div>
+
+      {canViewSection("roles-manage") ? (
+      <section className={`${SECTION_CLASS} ${getSectionOrderClass("roles-manage")}`}>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base font-semibold">
+            {text("users.rolesManage.title", t("settingsUsers.rolesManageTitle"))}
+          </h2>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => moveSection("roles-manage", "up")}
+              disabled={!canManageRoles || isFirstSection("roles-manage")}
+              className="rounded-md border border-border/70 p-1.5 text-muted-foreground transition-colors hover:bg-accent/40 disabled:opacity-40"
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => moveSection("roles-manage", "down")}
+              disabled={!canManageRoles || isLastSection("roles-manage")}
+              className="rounded-md border border-border/70 p-1.5 text-muted-foreground transition-colors hover:bg-accent/40 disabled:opacity-40"
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {text("users.rolesManage.description", t("settingsUsers.rolesManageDescription"))}
+        </p>
+        <div className="space-y-4">
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-foreground">{t("settingsUsers.standardRoles")}</h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              {ROLE_OPTIONS.map((role) => (
+                <label key={role.value} className="space-y-2 text-sm">
+                  <span className="block text-muted-foreground">
+                    {resolveRoleLabel(role.value, roleLabels[role.value], locale)} ({t("settingsUsers.roleKeyLabel")}:{" "}
+                    {role.value})
+                  </span>
+                  <input
+                    value={roleLabels[role.value] ?? ""}
+                    placeholder={resolveRoleLabel(role.value, "", locale)}
+                    onChange={(event) => setRoleLabel(role.value, event.target.value)}
+                    disabled={!canManageRoles}
+                    className="w-full rounded-md border border-border/50 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-foreground">{t("settingsUsers.customRoles")}</h3>
+
+            <form
+              className="grid gap-3 md:grid-cols-[1fr_220px_auto]"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const label = newCustomRoleLabel.trim();
+                if (!label || !canManageRoles) return;
+                addCustomRole(label, newCustomRoleTemplate);
+                setNewCustomRoleLabel("");
+              }}
+            >
+              <input
+                value={newCustomRoleLabel}
+                onChange={(event) => setNewCustomRoleLabel(event.target.value)}
+                placeholder={t("settingsUsers.newRolePlaceholder")}
+                className="rounded-md border border-border/50 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+              />
+              <select
+                value={newCustomRoleTemplate}
+                onChange={(event) =>
+                  setNewCustomRoleTemplate(event.target.value as Role)
+                }
+                disabled={!canManageRoles}
+                className="rounded-md border border-border/50 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+              >
+                {ROLE_OPTIONS.map((role) => (
+                  <option key={role.value} value={role.value}>
+                    {t("settingsUsers.templatePrefix")}:{" "}
+                    {resolveRoleLabel(role.value, roleLabels[role.value], locale)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                disabled={!canManageRoles || !newCustomRoleLabel.trim()}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("settingsUsers.createRole")}
+              </button>
+            </form>
+
+            {customRoleKeys.length ? (
+              <div className={TABLE_WRAP_CLASS}>
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/30 text-left text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">{t("settingsUsers.roleColumn")}</th>
+                      <th className="px-3 py-2 font-medium">{t("settingsUsers.actionColumn")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customRoleKeys.map((roleKey) => (
+                      <tr key={roleKey} className="border-t border-border/40">
+                        <td className="px-3 py-2">
+                          <input
+                            value={roleLabels[roleKey] ?? ""}
+                            placeholder={resolveRoleLabel(roleKey, "", locale)}
+                            onChange={(event) => setRoleLabel(roleKey, event.target.value)}
+                            disabled={!canManageRoles}
+                            className="w-full rounded-md border border-border/50 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => removeRole(roleKey)}
+                            disabled={!canManageRoles}
+                            className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-300 transition-all duration-200 hover:bg-red-500/10"
+                          >
+                            {t("settingsUsers.deleteRole")}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t("settingsUsers.noCustomRoles")}</p>
+            )}
+          </div>
+        </div>
+      </section>
+      ) : null}
+
+      {canViewSection("invite") ? (
+      <section className={`${SECTION_CLASS} ${getSectionOrderClass("invite")}`}>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base font-semibold">{t("settingsUsers.inviteTitle")}</h2>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => moveSection("invite", "up")}
+              disabled={!canManageRoles || isFirstSection("invite")}
+              className="rounded-md border border-border/70 p-1.5 text-muted-foreground transition-colors hover:bg-accent/40 disabled:opacity-40"
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => moveSection("invite", "down")}
+              disabled={!canManageRoles || isLastSection("invite")}
+              className="rounded-md border border-border/70 p-1.5 text-muted-foreground transition-colors hover:bg-accent/40 disabled:opacity-40"
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+        <form onSubmit={handleInvite} className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
+          <input
+            type="email"
+            placeholder={t("settingsUsers.inviteEmailPlaceholder")}
+            value={inviteEmail}
+            onChange={(event) => setInviteEmail(event.target.value)}
+            className="rounded-md border border-border/50 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+            required
+          />
+
+          <select
+            value={inviteRole}
+            onChange={(event) => setInviteRole(event.target.value as Role)}
+            className="rounded-md border border-border/50 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+          >
+            {inviteRoleOptions.map((role) => (
+              <option key={role.value} value={role.value}>
+                {resolveRoleLabel(role.value, roleLabels[role.value], locale)}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="submit"
+            disabled={isSubmittingInvite}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-all duration-200 hover:opacity-90"
+          >
+            {isSubmittingInvite ? t("settingsUsers.inviteSending") : t("settingsUsers.inviteSend")}
+          </button>
+        </form>
+
+        {inviteMessage ? (
+          <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+            {inviteMessage}
+          </p>
+        ) : null}
+
+        {inviteError ? (
+          <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700">
+            {inviteError}
+          </p>
+        ) : null}
+      </section>
+      ) : null}
+
+      {canViewSection("members") ? (
+      <section className={`${SECTION_CLASS} ${getSectionOrderClass("members")}`}>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base font-semibold">{t("settingsUsers.membersTitle")}</h2>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => moveSection("members", "up")}
+              disabled={!canManageRoles || isFirstSection("members")}
+              className="rounded-md border border-border/70 p-1.5 text-muted-foreground transition-colors hover:bg-accent/40 disabled:opacity-40"
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => moveSection("members", "down")}
+              disabled={!canManageRoles || isLastSection("members")}
+              className="rounded-md border border-border/70 p-1.5 text-muted-foreground transition-colors hover:bg-accent/40 disabled:opacity-40"
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {memberActionMessage ? (
+          <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+            {memberActionMessage}
+          </p>
+        ) : null}
+
+        {memberActionError ? (
+          <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700">
+            {memberActionError}
+          </p>
+        ) : null}
+
+        {isLoadingMembers ? (
+          <p className="text-sm text-muted-foreground">{t("settingsUsers.loadingUsers")}</p>
+        ) : members.length ? (
+          <div className={TABLE_WRAP_CLASS}>
+            <table className="w-full text-xs">
+              <thead className="bg-muted/30 text-left text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">{t("settingsUsers.emailColumn")}</th>
+                  <th className="px-3 py-2 font-medium">{t("settingsUsers.roleColumnMember")}</th>
+                  <th className="px-3 py-2 font-medium">{t("settingsUsers.createdAt")}</th>
+                  <th className="px-3 py-2 font-medium text-right">{t("settingsUsers.actionColumn")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((member) => (
+                  <tr key={member.id} className="border-t border-border/40">
+                    <td className="px-3 py-2">{member.email}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {resolveRoleLabel(member.role, roleLabels[member.role], locale)}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {new Date(member.createdAt).toLocaleString(dateLocale)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveUser(member.id)}
+                        className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-300 transition-all duration-200 hover:bg-red-500/10"
+                      >
+                        {t("settingsUsers.removeUser")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">{t("settingsUsers.noUsersFound")}</p>
+        )}
+      </section>
+      ) : null}
+
+    </div>
+  );
+}

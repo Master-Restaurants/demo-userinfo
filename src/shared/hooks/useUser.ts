@@ -1,0 +1,233 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import { createClient } from "@/shared/lib/supabase/client";
+import { normalizeRoleKey } from "@/shared/lib/roles";
+import { isDemoMode } from "@/shared/lib/demoMode";
+
+type DashboardUser = {
+  id: string;
+  email: string;
+  fullName: string;
+  roleKey: string;
+  /** Rohwert `profiles.role` (ohne Localhost-Boost) — für Entwickler-only UI. */
+  profileRoleRaw: string | null;
+  initials: string;
+  isLoading: boolean;
+};
+
+const DEFAULT_USER: DashboardUser = {
+  id: "",
+  email: "",
+  fullName: "Benutzer",
+  roleKey: "",
+  profileRoleRaw: null,
+  initials: "U",
+  isLoading: true,
+};
+
+function isLocalHostName(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
+}
+
+function buildInitials(name: string, email: string) {
+  const source = name.trim() || email.trim();
+  if (!source) return "U";
+
+  const nameParts = source
+    .replace(/[@._-]+/g, " ")
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (!nameParts.length) return "U";
+  if (nameParts.length === 1) return nameParts[0].slice(0, 2).toUpperCase();
+  return `${nameParts[0][0] ?? ""}${nameParts[1][0] ?? ""}`.toUpperCase();
+}
+
+export function useUser() {
+  const [user, setUser] = useState<DashboardUser>(DEFAULT_USER);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    // Demo-Mode: User kommt aus /api/demo/me (kein Supabase nötig).
+    if (isDemoMode()) {
+      void fetch("/api/demo/me", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : { user: null }))
+        .then((payload: { user?: { id?: string; email?: string; fullName?: string; roleKey?: string; profileRoleRaw?: string | null } | null }) => {
+          if (cancelled) return;
+          const demoUser = payload.user;
+          if (!demoUser?.id || !demoUser.email) {
+            setUser({ ...DEFAULT_USER, isLoading: false, profileRoleRaw: null });
+            return;
+          }
+          const fullName = demoUser.fullName || "Demo User";
+          setUser({
+            id: demoUser.id,
+            email: demoUser.email,
+            fullName,
+            roleKey: demoUser.roleKey || "owner",
+            profileRoleRaw: demoUser.profileRoleRaw ?? "owner",
+            initials: buildInitials(fullName, demoUser.email),
+            isLoading: false,
+          });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setUser({ ...DEFAULT_USER, isLoading: false, profileRoleRaw: null });
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const supabase = createClient();
+    let hydrateGen = 0;
+    let sawAuthEvent = false;
+
+    /**
+     * Kein getUser() hier: parallel zu onAuthStateChange (INITIAL_SESSION) löst das den
+     * GoTrue-Storage-Lock aus („another request stole it“). Session kommt aus dem Callback bzw. getSession.
+     */
+    const hydrateFromSession = async (session: Session | null) => {
+      const gen = ++hydrateGen;
+
+      const authUser = session?.user ?? null;
+      if (!authUser) {
+        try {
+          const localRes = await fetch("/api/dev/local-auth", { cache: "no-store" });
+          if (localRes.ok) {
+            const payload = (await localRes.json()) as {
+              user?: {
+                id?: string;
+                email?: string;
+                fullName?: string;
+                roleKey?: string;
+                profileRoleRaw?: string | null;
+              } | null;
+            };
+            const localUser = payload.user;
+            if (localUser?.email && localUser.id) {
+              const fullName = localUser.fullName || "Lokaler Entwickler";
+              if (cancelled || gen !== hydrateGen) return;
+              setUser({
+                id: localUser.id,
+                email: localUser.email,
+                fullName,
+                roleKey: localUser.roleKey || "owner",
+                profileRoleRaw: localUser.profileRoleRaw ?? "owner",
+                initials: buildInitials(fullName, localUser.email),
+                isLoading: false,
+              });
+              return;
+            }
+          }
+        } catch {
+          // ignore and fall through to default user
+        }
+        if (cancelled || gen !== hydrateGen) return;
+        setUser({ ...DEFAULT_USER, isLoading: false, profileRoleRaw: null });
+        return;
+      }
+
+      const email = authUser.email ?? "";
+      const fallbackFullName =
+        (authUser.user_metadata?.full_name as string | undefined) ||
+        authUser.email?.split("@")[0] ||
+        "Benutzer";
+      const fallbackRoleKey =
+        normalizeRoleKey(authUser.user_metadata?.role) ??
+        normalizeRoleKey(authUser.app_metadata?.role) ??
+        "viewer";
+      const metadataRoleRaw =
+        typeof authUser.user_metadata?.role === "string" && authUser.user_metadata.role.trim()
+          ? authUser.user_metadata.role.trim()
+          : null;
+
+      // Sofort aus Session-Metadaten — ohne auf `profiles` zu warten (schnelleres Willkommen).
+      // Bei erneutem Hydrate (z. B. Token-Refresh) Anzeigename nicht zurück auf Metadaten setzen.
+      if (cancelled || gen !== hydrateGen) return;
+      setUser((prev) => {
+        if (prev.id === authUser.id) {
+          return { ...prev, isLoading: false };
+        }
+        return {
+          id: authUser.id,
+          email,
+          fullName: fallbackFullName,
+          roleKey: fallbackRoleKey,
+          profileRoleRaw: metadataRoleRaw,
+          initials: buildInitials(fallbackFullName, email),
+          isLoading: false,
+        };
+      });
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name,role")
+        .eq("id", authUser.id)
+        .maybeSingle();
+
+      if (cancelled || gen !== hydrateGen) return;
+
+      const fullName =
+        (profile?.full_name as string | undefined) || fallbackFullName;
+      let roleKey = normalizeRoleKey(profile?.role) || fallbackRoleKey;
+      const profileRoleRaw =
+        typeof profile?.role === "string" && profile.role.trim()
+          ? profile.role.trim()
+          : metadataRoleRaw;
+
+      try {
+        const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+        if (isLocalHostName(hostname)) {
+          roleKey = "owner";
+        }
+      } catch {
+        // ignore
+      }
+
+      setUser({
+        id: authUser.id,
+        email,
+        fullName,
+        roleKey,
+        profileRoleRaw,
+        initials: buildInitials(fullName, email),
+        isLoading: false,
+      });
+    };
+
+    const fallbackSessionBootstrap = window.setTimeout(() => {
+      if (cancelled || sawAuthEvent) return;
+      void supabase.auth
+        .getSession()
+        .then((result: Awaited<ReturnType<typeof supabase.auth.getSession>>) => {
+          if (cancelled || sawAuthEvent) return;
+          void hydrateFromSession(result.data.session);
+        })
+        .catch(() => {
+          if (cancelled || sawAuthEvent) return;
+          setUser({ ...DEFAULT_USER, isLoading: false, profileRoleRaw: null });
+        });
+    }, 600);
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
+      if (cancelled) return;
+      sawAuthEvent = true;
+      void hydrateFromSession(session);
+    });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(fallbackSessionBootstrap);
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  return useMemo(() => user, [user]);
+}

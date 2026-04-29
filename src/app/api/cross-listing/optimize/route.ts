@@ -1,0 +1,136 @@
+import { isDemoMode } from "@/shared/lib/demoMode";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createClient as createServerSupabase } from "@/shared/lib/supabase/server";
+import {
+  runCrossListingClaudeOptimize,
+  limitsFromConfig,
+  type CrossListingLlmResult,
+} from "@/shared/lib/crossListing/crossListingLlmOptimize";
+import { getCrossListingFieldConfig } from "@/shared/lib/crossListing/marketplaceFieldConfigs";
+import {
+  CROSS_LISTING_TARGET_SLUGS,
+  type CrossListingTargetSlug,
+} from "@/shared/lib/crossListing/crossListingDraftTypes";
+import { loadMarketplaceRulebook } from "@/shared/lib/crossListing/loadMarketplaceRulebook";
+import { getAmazonMarketplaceBySlug } from "@/shared/config/amazonMarketplaces";
+
+export const dynamic = "force-dynamic";
+
+const DraftValuesZ = z.object({
+  title: z.string(),
+  description: z.string(),
+  bullets: z.array(z.string()),
+  images: z.array(z.string()),
+  priceEur: z.string(),
+  uvpEur: z.string(),
+  stockQty: z.string(),
+  ean: z.string(),
+  brand: z.string(),
+  category: z.string(),
+  dimL: z.string(),
+  dimW: z.string(),
+  dimH: z.string(),
+  weight: z.string(),
+  petSpecies: z.string(),
+  tags: z.array(z.string()),
+  searchTerms: z.string(),
+  seoTitle: z.string(),
+  seoDescription: z.string(),
+  condition: z.string(),
+  handlingTime: z.string(),
+  amazonProductType: z.string().optional().default(""),
+  attributes: z.record(z.string(), z.string()),
+});
+
+const SourceRecordZ = z.object({
+  slug: z.string(),
+  title: z.string().nullable(),
+  description: z.string().nullable(),
+  bullets: z.array(z.string()),
+  images: z.array(z.string()),
+  priceEur: z.number().nullable(),
+  uvpEur: z.number().nullable(),
+  stockQty: z.number().nullable(),
+  ean: z.string().nullable(),
+  brand: z.string().nullable(),
+  category: z.string().nullable(),
+  dimL: z.number().nullable(),
+  dimW: z.number().nullable(),
+  dimH: z.number().nullable(),
+  weight: z.number().nullable(),
+  petSpecies: z.string().nullable(),
+  tags: z.array(z.string()),
+  attributes: z.record(z.string(), z.string()),
+  raw: z.unknown().optional(),
+});
+
+const BodyZ = z.object({
+  sku: z.string().min(1),
+  targetMarketplace: z.enum(CROSS_LISTING_TARGET_SLUGS as readonly [
+    CrossListingTargetSlug,
+    ...CrossListingTargetSlug[]
+  ]),
+  mergedValues: DraftValuesZ,
+  sourceData: z.record(z.string(), SourceRecordZ.nullable()),
+  /** Amazon-Multi-Country: wenn gesetzt, bestimmt Sprache + Label für LLM. */
+  amazonCountrySlug: z.string().optional(),
+});
+
+
+export async function POST(request: Request) {
+  if (isDemoMode()) return NextResponse.json({ ok: true, demo: true });
+  const supabase = await createServerSupabase();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: "Nicht authentifiziert." }, { status: 401 });
+  }
+
+  const bodyRaw = (await request.json().catch(() => null)) as unknown;
+  const parsed = BodyZ.safeParse(bodyRaw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: `Ungültiger Body: ${parsed.error.issues.map((i) => i.message).join("; ")}` },
+      { status: 400 }
+    );
+  }
+
+  const config = getCrossListingFieldConfig(parsed.data.targetMarketplace);
+  if (!config) {
+    return NextResponse.json({ error: "Unbekannter Ziel-Marktplatz." }, { status: 400 });
+  }
+
+  const rulebook = await loadMarketplaceRulebook(parsed.data.targetMarketplace);
+  const limits = limitsFromConfig(config);
+
+  // Amazon-Multi-Country: Label + language_tag aus Config ableiten.
+  let amazonCountryLabel: string | undefined;
+  let languageTag: string | undefined;
+  if (parsed.data.targetMarketplace === "amazon") {
+    const slug = parsed.data.amazonCountrySlug ?? "amazon-de";
+    const mp = getAmazonMarketplaceBySlug(slug);
+    if (mp) {
+      amazonCountryLabel = `${mp.name} (${mp.domain})`;
+      languageTag = mp.languageTag;
+    }
+  }
+
+  const result: CrossListingLlmResult = await runCrossListingClaudeOptimize({
+    sku: parsed.data.sku,
+    target: parsed.data.targetMarketplace,
+    rulebookMarkdown: rulebook,
+    mergedValues: parsed.data.mergedValues,
+    sourceData: parsed.data.sourceData,
+    limits,
+    amazonCountryLabel,
+    languageTag,
+  });
+
+  return NextResponse.json({
+    result,
+    rulebookLoaded: rulebook.length > 0,
+  });
+}

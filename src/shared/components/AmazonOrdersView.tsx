@@ -323,7 +323,7 @@ export function AmazonOrdersView({
           <span className={DASHBOARD_MARKETPLACE_LOGO_FRAME}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg"
+              src="/brand/marketplaces/amazon.svg"
               alt={t("nav.amazon")}
               className={DASHBOARD_MARKETPLACE_LOGO_IMG_IN_FRAME}
               loading="eager"

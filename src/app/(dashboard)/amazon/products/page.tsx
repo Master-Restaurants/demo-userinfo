@@ -12,7 +12,7 @@ export default function AmazonProductsPage() {
       <MarketplaceProductsView
         apiUrl={(status) => `/api/amazon/products?status=${status}&all=1`}
         cacheKey={(status) => `amazon_products_cache_v2:${status}`}
-        logoSrc="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg"
+        logoSrc="/brand/marketplaces/amazon.svg"
         brandAlt="Amazon"
         marketplaceSlug="amazon"
         amazonStatusFilter

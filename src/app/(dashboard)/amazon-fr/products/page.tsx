@@ -12,7 +12,7 @@ export default function AmazonFrProductsPage() {
       <MarketplaceProductsView
         apiUrl={(status) => `/api/amazon/amazon-fr/products?status=${status}&all=1`}
         cacheKey={(status) => `amazon_fr_products_cache_v2:${status}`}
-        logoSrc="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg"
+        logoSrc="/brand/marketplaces/amazon.svg"
         brandAlt="Amazon FR"
         marketplaceSlug="amazon"
         amazonSlug="amazon-fr"

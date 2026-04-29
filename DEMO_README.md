@@ -1,68 +1,70 @@
 # Master Dashboard — Demo-Variante
 
-Dies ist eine eigenständige Demo-Variante des Master-Dashboards für Bewerbungs­zwecke. Alle echten Marktplatz-APIs (Amazon, eBay, Otto, Kaufland, Fressnapf, MediaMarkt-Saturn, Zooplus, Shopify, TikTok, Xentral) sind durch synthetische Demo-Daten ersetzt. Es wird **kein Supabase, keine Vercel-Secrets und kein API-Key** für den Betrieb der Demo benötigt.
+Reduzierte Variante des Master-Dashboards, gedacht als interaktives Vorstellungsprojekt für Bewerbungen. **Keine Supabase, keine externen API-Keys** — alle Daten kommen aus deterministischen Mock-Generatoren.
 
----
+## Was die Demo zeigt
 
-## Wie es funktioniert
+Eine voll klickbare Multi-Marktplatz-E-Commerce-Steuerung:
 
-Aktiviert wird der Demo-Modus über eine einzige Umgebungsvariable: `NEXT_PUBLIC_DEMO_MODE=1`.
-
-Wenn der Modus aktiv ist:
-- **Login-Seite** zeigt einen großen "Demo betreten"-Button. Ein Klick → Recruiter ist als Admin eingeloggt.
-- **Auth-System** läuft komplett über einen eigenen Cookie (`md_demo_user`); Supabase wird nicht kontaktiert.
-- **Alle Marktplatz-API-Routen** liefern statische Seed-Daten statt echter HTTP-Calls.
-- **Schreib-Aktionen** (Speichern / Sync) werden visuell als Erfolg angezeigt, schreiben aber nichts.
-- **Banner** über dem Dashboard weist Recruiter darauf hin, dass alles fiktiv ist.
-
-Ist `NEXT_PUBLIC_DEMO_MODE` nicht gesetzt (oder = `0`), verhält sich der Code wieder wie das Original — d.h. das Side-Project lässt sich jederzeit "wiederbeleben" mit echten Credentials.
-
----
+- **9 Marktplätze** (Amazon, eBay, Otto, Kaufland, Fressnapf, MediaMarkt-Saturn, Zooplus, Shopify, TikTok) mit Bestellungen, Produkten und Sales-Charts
+- **Cross-Marketplace-Analytics** — Umsatz / Profit / Retouren pro Kanal über 90 Tage mit Vorperioden-Vergleich
+- **Bedarfsprognose** — SKU-Lagerprojektion mit Container-Ankunftszeiten
+- **Xentral-ERP-Integration** — Aufträge & Artikelstamm
+- **Settings** — Rollensystem, User-Verwaltung, Tutorials
+- **Cross-Listing-Drafts** (KI-vorbereitete Listings für andere Marktplätze)
+- **Promotion-Deals**, **Price-Parity**, **Payouts**, **Procurement**, **Advertising**
+- Dark-Mode · 3 Sprachen (DE/EN/ZH) · responsive Design
 
 ## Lokal starten
 
 ```bash
 npm install
 npm run dev
-# → http://localhost:3000
+# → http://localhost:3000 → "Demo betreten"
 ```
 
-Die `.env.local` enthält bereits `NEXT_PUBLIC_DEMO_MODE=1` plus harmlose Dummy-Werte für Supabase. Das reicht.
+Keine `.env`-Datei nötig — Demo-Mode ist Default an.
 
----
+## Auf Vercel deployen
 
-## Telegram-Bot für Visit-Notifications (optional)
+1. **[vercel.com](https://vercel.com)** öffnen, mit GitHub einloggen.
+2. **„Add New… → Project"** → `Master-Restaurants/demo-userinfo` importieren.
+3. Defaults für Framework / Build / Output beibehalten.
+4. **Environment Variables** sind komplett optional. Nur falls du Telegram-Notifications willst (siehe unten).
+5. **„Deploy"** klicken — fertig in 2-3 Min.
 
-Wenn jemand die Demo öffnet ("Demo betreten" klickt), kannst du per Telegram benachrichtigt werden — mit IP, Browser, Sprache und Zeitstempel. Praktisch wenn ein Recruiter draufschaut.
+## Telegram-Notifications (optional)
 
-### Bot anlegen (5 Minuten)
+Bei jedem „Demo betreten"-Klick kannst du per Telegram benachrichtigt werden — mit IP, Browser, Sprache, Zeitstempel. Praktisch wenn du sehen willst, ob ein Recruiter draufschaut.
 
-1. **Telegram öffnen** und `@BotFather` suchen → Chat starten.
-2. `/newbot` senden, einen Namen eingeben (z.B. "Master-Dashboard Visits"), dann einen Username (muss auf `bot` enden, z.B. `master_dashboard_visits_bot`).
-3. BotFather schickt dir einen Token im Format `123456789:ABCdef-...` — **diesen Token notieren**.
+### Bot anlegen (5 Min)
+
+1. **Telegram öffnen** → `@BotFather` suchen → `/newbot`.
+2. Namen + Username vergeben (Username muss auf `bot` enden).
+3. BotFather schickt dir einen **Token** — notieren.
 4. Schreib deinem neuen Bot einmal `/start` (sonst kann er dir keine Nachrichten senden).
-5. **Chat-ID herausfinden:** Suche `@userinfobot` in Telegram, schick `/start` — er antwortet mit deiner ID (z.B. `123456789`).
+5. **Chat-ID rausfinden:** Suche `@userinfobot` → `/start` → er antwortet mit deiner ID.
 
 ### Bei Vercel als Env-Variablen setzen
 
-Vercel-Project → Settings → Environment Variables → "Add New":
+Vercel-Project → **Settings → Environment Variables** → "Add New":
 
 | Name | Value |
 |------|-------|
 | `DEMO_TELEGRAM_BOT_TOKEN` | dein Token von BotFather |
 | `DEMO_TELEGRAM_CHAT_ID` | deine Chat-ID von @userinfobot |
 
-Nach dem Setzen einmal **Redeploy** (Vercel macht das nicht automatisch bei Env-Änderungen).
+Nach dem Setzen einmal **Redeploy** triggern (Vercel macht das nicht automatisch bei Env-Änderungen).
 
 ### Lokal testen
 
-In `.env.local`:
+In einer neuen `.env.local`:
 ```
 DEMO_TELEGRAM_BOT_TOKEN=123456789:ABCdef-...
 DEMO_TELEGRAM_CHAT_ID=123456789
 ```
 
-Dann `npm run dev` neu starten. Beim Klick auf "Demo betreten" landet eine Telegram-Nachricht in deinem Chat:
+`npm run dev` neu starten — beim Klick auf „Demo betreten" landet eine Telegram-Nachricht:
 
 > 🚀 **Neuer Demo-Visit**
 >
@@ -72,130 +74,29 @@ Dann `npm run dev` neu starten. Beim Klick auf "Demo betreten" landet eine Teleg
 > 🔗 **Referer:** https://www.linkedin.com/...
 > 🗣 **Sprache:** de-DE
 
-Sind die Variablen nicht gesetzt, läuft alles normal — der Visit wird stattdessen nur in die Server-Konsole bzw. Vercel-Function-Logs geloggt (siehst du im Vercel-Dashboard unter "Logs").
+Ohne Bot-Setup wird der Visit nur in die Server-Konsole bzw. Vercel-Function-Logs geloggt (`[demo-visit] {...}`).
 
 ### Datenschutz-Hinweis
 
-Du loggst hier IP-Adressen von Besuchern — laut DSGVO ist das prinzipiell personenbezogen. Für eine private Bewerbungs-Demo zur Eigenkontrolle ist das vertretbar (berechtigtes Interesse, Art. 6 Abs. 1 lit. f), aber:
+Du loggst hier IP-Adressen — laut DSGVO personenbezogen. Für eine private Bewerbungs-Demo zur Eigenkontrolle vertretbar (berechtigtes Interesse, Art. 6 Abs. 1 lit. f), aber:
 - **Keine** öffentliche Verbreitung der Logs.
 - **Lösche** Telegram-Nachrichten nach Bewerbungs-Abschluss.
-- Im Impressum/Datenschutz solltest du das erwähnen falls die Demo dauerhaft online bleibt.
+- Falls die Demo dauerhaft online bleibt: Erwähnung im Impressum/Datenschutz.
 
----
+## Architektur (kurz)
 
-## Auf Vercel veröffentlichen
+| Datei / Ordner | Zweck |
+|----------------|-------|
+| `src/shared/lib/demoMode.ts` | Demo-Mode-Toggle + Demo-User-Konstante (Default: an) |
+| `src/shared/lib/demoSeed.ts` | Deterministische Mock-Daten-Generatoren (Bestellungen, Produkte, Sales, Payouts, ...) |
+| `src/shared/lib/demoTelemetry.ts` | Visit-Logging + optionale Telegram-Notification |
+| `src/shared/lib/supabase/demoMockClient.ts` | Mock-Supabase-Client als Sicherheitsnetz für nicht-explizit-gepatchte Routen |
+| `src/proxy.ts` | Cookie-basierte Demo-Auth statt Supabase-Auth |
+| `src/shared/components/auth/DemoLoginCard.tsx` | "Demo betreten"-Login-Karte |
+| `src/shared/components/layout/DemoModeBanner.tsx` | "Demo-Modus"-Hinweisbanner über jeder Dashboard-Seite |
+| `src/app/api/demo/{login,logout,me}` | Demo-Auth-Endpoints |
+| `src/app/api/{...}/route.ts` | 90+ API-Routen mit `if (isDemoMode()) return demoResponse(...)` Guards |
 
-### Schritt 1 — GitHub-Repo anlegen
+## Stack
 
-1. Erstelle einen kostenlosen GitHub-Account (falls noch nicht vorhanden): https://github.com/signup
-2. Erstelle ein neues, **privates** Repo (Name z.B. `master-dashboard-demo`).
-3. Im Terminal (im Ordner `Master-Dashboard-Demo`):
-
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial demo version"
-   git branch -M main
-   git remote add origin https://github.com/DEIN_NUTZERNAME/master-dashboard-demo.git
-   git push -u origin main
-   ```
-
-### Schritt 2 — Vercel verbinden
-
-1. Gehe auf https://vercel.com und melde dich mit deinem GitHub-Account an (kostenlos).
-2. Klicke auf "Add New…" → "Project".
-3. Wähle dein neu erstelltes Repo `master-dashboard-demo` aus.
-4. Bei "Configure Project":
-   - **Framework Preset:** Next.js (wird automatisch erkannt)
-   - **Root Directory:** lasse leer (Standard ist Repo-Root)
-   - **Build Command:** lasse leer (Default `npm run build`)
-   - **Environment Variables:** klappe auf und füge folgende hinzu:
-
-     | Name | Value |
-     |------|-------|
-     | `NEXT_PUBLIC_DEMO_MODE` | `1` |
-     | `NEXT_PUBLIC_SUPABASE_URL` | `https://demo.master-dashboard.invalid` |
-     | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `demo-anon-key-placeholder.eyJhbGciOiJIUzI1NiJ9.demo.signature` |
-     | `SKIP_ENV_VALIDATION` | `1` |
-
-5. Klicke auf "Deploy". Nach ca. 2–3 Minuten ist die Demo unter einer URL wie `master-dashboard-demo.vercel.app` erreichbar.
-
-### Schritt 3 — Eigene Domain (optional)
-
-Wenn du eine Custom-Domain möchtest (z.B. `dashboard.deinedomain.de`):
-- Vercel-Project → Settings → Domains → Add Domain.
-- Folge den DNS-Anweisungen.
-
----
-
-## Was ist in der Demo enthalten?
-
-### Voll funktional mit Demo-Daten
-- **Login** mit "Demo betreten"-Button
-- **Home / Übersicht** mit Quick-Links
-- **Analytics → Marktplätze** (Cross-Marketplace Charts, Umsatz/Profit pro Kanal über 90 Tage)
-- **Bedarfsprognose** (`/analytics/article-forecast`)
-- **Bestellungen** pro Marktplatz (Amazon, eBay, Otto, Kaufland, Fressnapf, MMS, Zooplus, Shopify, TikTok)
-- **Produkte** pro Marktplatz
-- **Xentral-Bestellungen + Artikel**
-- **Settings → Users / Profile / Tutorials**
-- **Updates-Feed**
-- **Dark-Mode-Toggle**
-- **Sprach-Umschalter** (DE/EN/ZH)
-- **Tutorials** (Cosmo-Mascot)
-
-### Gracefully leer (kein Crash, aber keine Daten)
-- Procurement-Import
-- Cross-Listing
-- Werbe-Modul
-- Payouts
-
----
-
-## Architektur des Demo-Modes
-
-### Geänderte / neue Dateien
-
-| Datei | Zweck |
-|-------|-------|
-| `src/shared/lib/demoMode.ts` | **NEU** — `isDemoMode()`, `DEMO_USER`-Konstante, Cookie-Name |
-| `src/shared/lib/demoSeed.ts` | **NEU** — Generiert deterministische Mock-Daten (Bestellungen, Produkte, Sales) für alle Marktplätze |
-| `src/shared/lib/supabase/demoMockClient.ts` | **NEU** — Mock-Supabase-Client (verhindert dass Routen ohne explizite Demo-Guards crashen) |
-| `src/proxy.ts` | Erweitert — Demo-Cookie statt Supabase-Auth im Demo-Modus |
-| `src/shared/lib/supabase/{server,client,admin}.ts` | Erweitert — Liefern Mock-Client im Demo-Modus |
-| `src/shared/lib/supabase/env.ts` | Erweitert — Dummy-Werte im Demo-Modus erlaubt |
-| `src/shared/hooks/useUser.ts` | Erweitert — Demo-User aus `/api/demo/me` |
-| `src/shared/components/auth/DemoLoginCard.tsx` | **NEU** — Login-Karte mit "Demo betreten" |
-| `src/shared/components/auth/LogoutMenuItem.tsx` | Erweitert — Demo-Logout-Endpoint |
-| `src/shared/components/layout/DemoModeBanner.tsx` | **NEU** — Banner über dem Dashboard |
-| `src/app/(auth)/login/page.tsx` | Erweitert — Im Demo-Mode: Demo-Karte rendern |
-| `src/app/(dashboard)/layout.tsx` | Erweitert — Banner einbauen |
-| `src/app/api/demo/login/route.ts` | **NEU** — Setzt Demo-Cookie |
-| `src/app/api/demo/logout/route.ts` | **NEU** — Löscht Demo-Cookie |
-| `src/app/api/demo/me/route.ts` | **NEU** — Liefert Demo-User-Profil |
-| `src/app/api/{marketplace}/{orders,products,sales}/route.ts` | Erweitert — Demo-Guard am Anfang von 27 Routen |
-| `src/app/api/analytics/marketplace-overview/route.ts` | Erweitert — Demo-Guard |
-| `src/app/api/xentral/{orders,articles}/route.ts` | Erweitert — Demo-Guard |
-| `src/app/api/article-forecast/rules/route.ts` | Erweitert — Demo-Guard |
-
-### Wie reaktiviert man die echten Daten?
-
-Setze `NEXT_PUBLIC_DEMO_MODE=0` (oder lösche die Variable) und gib stattdessen die echten Supabase- und Marktplatz-Credentials in `.env.local` ein. Die `.env.example` aus dem Original-Projekt zeigt welche.
-
----
-
-## Bekannte Einschränkungen der Demo
-
-- **Daten sind statisch:** Selbst wenn man "neuen Eintrag erstellen" klickt, persistiert nichts — Reload zeigt wieder die ursprünglichen Mock-Daten.
-- **Login akzeptiert keine echten User:** Der "Demo betreten"-Knopf ist die einzige Login-Methode im Demo-Mode. Email/Passwort-Form ist im Demo-Mode nicht sichtbar.
-- **Stempel-/Zeitwerte** wirken konsistent, aber sind deterministisch aus dem aktuellen Datum errechnet — bei wiederholtem Reload können einzelne Cached-Werte minimal abweichen, das ist normal.
-
----
-
-## Original-Projekt wiederbeleben
-
-Das Original-Projekt liegt unter `Master-Dashboard 2/Master-Dashboard/master-dashboard/` (separater Ordner, eigenständig). Die Demo hier ist ein Fork ohne Verbindung zum Original — Änderungen hier wirken sich nicht auf das Original aus.
-
-Um das Original wiederzubeleben:
-- Echte `.env.local` mit Supabase- und Marktplatz-Credentials einsetzen (siehe `.env.example`).
-- `npm install && npm run dev`.
+Next.js 16 · React 19 · TypeScript · Tailwind 4 · shadcn/ui · TanStack Query/Table · Zustand · Recharts · Zod

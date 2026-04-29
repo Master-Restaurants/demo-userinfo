@@ -31,12 +31,19 @@ function readBoolEnv(raw: string | undefined): boolean {
 /**
  * `true` wenn DEMO_MODE aktiv ist. Funktioniert auf Server und Client.
  *
- * Wichtig: Wir nutzen eine `NEXT_PUBLIC_*`-Variable, damit der Wert sowohl im
- * Server-Code (API-Routen, Middleware, Server-Components) als auch im
- * Client-Code (Hooks, Components) verfügbar ist.
+ * Default für dieses Repo: **immer an**. Dieses Repo ist die öffentliche
+ * Demo-Variante des Master-Dashboards — alle API-Routen liefern Mock-Daten,
+ * keine echte Datenbank wird kontaktiert.
+ *
+ * Wer den Demo-Modus explizit ausschalten will (für lokale Entwicklung gegen
+ * echtes Supabase), setzt `NEXT_PUBLIC_DEMO_MODE=0`.
  */
 export function isDemoMode(): boolean {
-  return readBoolEnv(process.env.NEXT_PUBLIC_DEMO_MODE);
+  const raw = (process.env.NEXT_PUBLIC_DEMO_MODE ?? "").trim().toLowerCase();
+  // Explizit ausgeschaltet:
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return false;
+  // Default und alle anderen Werte (inkl. "1"/"true"/leer): Demo an.
+  return true;
 }
 
 /**

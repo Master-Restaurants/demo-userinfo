@@ -858,28 +858,118 @@ export function demoWeeklyReportNotesPayload() {
 }
 
 /** Price-Parity */
+/**
+ * Price-Parity — voller PriceParityRow-Shape (siehe price-parity/route.ts).
+ * Wichtig: Konsumer erwartet `{rows, meta, issueCount}` — nicht `{items}`.
+ * Cells müssen `state` als "ok"|"missing"|"no_price"|"mismatch"|"not_connected" haben.
+ */
 export function demoPriceParityPayload() {
-  const items = DEMO_PRODUCTS.map((p, i) => {
-    const prices = DEMO_MARKETPLACES.map((mp) => ({
-      marketplace: mp,
-      price: +(p.priceEur * (0.92 + seededRandom(`pp-${mp}-${i}`) * 0.16)).toFixed(2),
-      url: `https://example.com/${mp}/${p.sku.toLowerCase()}`,
-      inStock: seededRandom(`pp-${mp}-${i}-st`) > 0.15,
-    }));
-    const minPrice = Math.min(...prices.map((p) => p.price));
-    const maxPrice = Math.max(...prices.map((p) => p.price));
+  /** Nicht-Amazon-Marktplätze, die in ANALYTICS_MARKETPLACES gelistet sind. */
+  const ANALYTICS_SLUGS = [
+    "otto", "ebay", "kaufland", "fressnapf", "fressnapf-at",
+    "mediamarkt-saturn", "zooplus", "tiktok", "shopify",
+  ] as const;
+
+  type CellState = "ok" | "missing" | "no_price" | "mismatch" | "not_connected";
+  type Cell = {
+    price: number | null;
+    state: CellState;
+    stock: number | null;
+    stockState: CellState;
+    isActive: boolean | null;
+    matchInfo?: null;
+  };
+
+  const buildCell = (basePrice: number, key: string, idx: number): Cell => {
+    const roll = seededRandom(key + "-roll");
+    // 70% ok, 10% mismatch, 8% no_price, 7% missing, 5% not_connected
+    let state: CellState;
+    if (roll < 0.70) state = "ok";
+    else if (roll < 0.80) state = "mismatch";
+    else if (roll < 0.88) state = "no_price";
+    else if (roll < 0.95) state = "missing";
+    else state = "not_connected";
+
+    let price: number | null = null;
+    let stock: number | null = null;
+    let stockState: CellState = state;
+    let isActive: boolean | null = null;
+
+    if (state === "ok") {
+      price = +(basePrice * (0.94 + seededRandom(key + "p") * 0.10)).toFixed(2);
+      stock = Math.floor(seededRandom(key + "s") * 250) + 5;
+      stockState = "ok";
+      isActive = true;
+    } else if (state === "mismatch") {
+      // Stark abweichender Preis (Mehrheit gegen diesen Bucket)
+      price = +(basePrice * (0.78 + seededRandom(key + "pm") * 0.06)).toFixed(2);
+      stock = Math.floor(seededRandom(key + "sm") * 200) + 5;
+      stockState = "ok";
+      isActive = true;
+    } else if (state === "no_price") {
+      price = null;
+      stock = Math.floor(seededRandom(key + "snp") * 50);
+      stockState = stock > 0 ? "ok" : "no_price";
+      isActive = true;
+    } else if (state === "missing") {
+      price = null;
+      stock = null;
+      stockState = "missing";
+      isActive = false;
+    } else {
+      // not_connected
+      price = null;
+      stock = null;
+      stockState = "not_connected";
+      isActive = null;
+    }
+
+    void idx;
+    return { price, state, stock, stockState, isActive, matchInfo: null };
+  };
+
+  const rows = DEMO_PRODUCTS.map((p, i) => {
+    const amazon = buildCell(p.priceEur, `pp-amazon-${i}`, i);
+    const otherMarketplaces: Record<string, Cell> = {};
+    for (const slug of ANALYTICS_SLUGS) {
+      otherMarketplaces[slug] = buildCell(p.priceEur, `pp-${slug}-${i}`, i);
+    }
+
+    const needsReview =
+      amazon.state !== "ok" ||
+      amazon.stockState !== "ok" ||
+      Object.values(otherMarketplaces).some(
+        (c) =>
+          (c.state !== "ok" && c.state !== "not_connected") ||
+          (c.stockState !== "ok" && c.stockState !== "not_connected")
+      );
+
     return {
       sku: p.sku,
       name: p.name,
-      ownPrice: p.priceEur,
-      prices,
-      minPrice,
-      maxPrice,
-      spread: +((maxPrice - minPrice) / minPrice * 100).toFixed(1),
-      hasParityIssue: maxPrice / minPrice > 1.1,
+      stock: Math.floor(seededRandom(`pp-stock-${i}`) * 300) + 10,
+      amazon,
+      otherMarketplaces,
+      needsReview,
     };
   });
-  return { items, articles: items, metadata: { demo: true } };
+
+  const issueCount = rows.filter((r) => r.needsReview).length;
+
+  return {
+    meta: {
+      articleCount: rows.length,
+      amazonMatchedSkus: rows.filter((r) => r.amazon.state === "ok").length,
+      amazonWarning: null,
+      ottoWarning: null,
+      channels: {
+        connected: ["amazon", ...ANALYTICS_SLUGS],
+        planned: [],
+      },
+    },
+    rows,
+    issueCount,
+  };
 }
 
 /** Price/Stock-Overrides */
